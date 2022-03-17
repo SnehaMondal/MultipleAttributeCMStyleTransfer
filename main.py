@@ -28,7 +28,7 @@ import datasets
 
 import transformers
 from transformers import (
-    MT5Model, T5Tokenizer, T5Config,
+    T5Tokenizer, T5Config,
     HfArgumentParser,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
@@ -40,6 +40,7 @@ from transformers.utils.versions import require_version
 
 import prepare_dataset as pd
 import metrics
+from model import MT5ForStyleConditionalGeneration
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,8 @@ class ModelArguments:
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
     """
 
-    model_name_or_path: Optional[str] = field(
-        default=None,
+    model_name_or_path: str = field(
+        default="google/mt5-small",
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
     config_name: Optional[str] = field(
@@ -249,41 +250,19 @@ def main():
 
     raw_datasets = pd.load_data(data_args, model_args)
 
-    # Set up config and tokenizer from open source model.
-    # Initialize base model with same config as open source model.
-    os_model_name = "google/mt5-small"
-    
-    if model_args.model_name_or_path is None:
-        tokenizer = T5Tokenizer.from_pretrained(
-            os_model_name,
-            cache_dir=model_args.cache_dir,
-            use_fast=model_args.use_fast_tokenizer,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-        )
-        ## load clean slate model from open source model config
-        config = T5Config.from_pretrained(
-            os_model_name,
-            cache_dir=model_args.cache_dir,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-        )
-        model = MT5Model(config)
-    else:
-        logger.info("Starting from a pretrained checkpoint")
-        tokenizer = T5Tokenizer.from_pretrained(
-            model_args.model_name_or_path,
-            cache_dir=model_args.cache_dir,
-            use_fast=model_args.use_fast_tokenizer,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-        )
-        model = MT5Model.from_pretrained(model_args.model_name_or_path)
-
+    #Load model for style conditional generation.
+    logging.info(f"Loading available weights from : {model_args.model_name_or_path}")
+    tokenizer = T5Tokenizer.from_pretrained(
+        model_args.model_name_or_path,
+        cache_dir=model_args.cache_dir,
+        use_fast=model_args.use_fast_tokenizer,
+        revision=model_args.model_revision,
+        use_auth_token=True if model_args.use_auth_token else None,
+    )
+    model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path)
     model.resize_token_embeddings(len(tokenizer))
 
     # Set decoder_start_token_id
-    
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
 
