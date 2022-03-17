@@ -12,11 +12,13 @@ from torch.nn import CrossEntropyLoss
 class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
 	def __init__(self, config):
 		super().__init__(config)
+		self.cmi_style_vector = nn.Parameter(torch.rand(config.d_model))
 	   
 	def forward(
 		self,
 		input_ids=None,
 		attention_mask=None,
+		input_cmi_scores=None,
 		decoder_input_ids=None,
 		decoder_attention_mask=None,
 		head_mask=None,
@@ -62,6 +64,15 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
 			)
 
 		hidden_states = encoder_outputs[0]
+
+		#additive intervention
+		batch_size = hidden_states.shape[0]
+		max_seq_len = hidden_states.shape[1]
+
+		cmi_scaled = self.cmi_style_vector.repeat(batch_size, 1) * input_cmi_scores[:, None]
+		hidden_states += cmi_scaled.view(batch_size, 1, config.d_model).repeat(1, max_seq_len, 1)
+		assert torch.equal(encoder_outputs.last_hidden_state, hidden_states)
+
 
 		if self.model_parallel:
 			torch.cuda.set_device(self.decoder.first_device)

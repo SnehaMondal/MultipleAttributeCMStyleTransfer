@@ -2,6 +2,8 @@ import datasets
 from datasets import load_dataset
 from transformers import default_data_collator, DataCollatorForSeq2Seq
 
+prefix = "to_cm"
+
 def load_data(data_args, model_args):
     # Get the datasets: you can either provide your own JSON training and evaluation files (see below)
     # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
@@ -19,7 +21,9 @@ def load_data(data_args, model_args):
         data_files["validation"] = data_args.validation_file
     if data_args.test_file is not None:
         data_files["test"] = data_args.test_file
-    raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t', cache_dir=model_args.cache_dir, column_names=[data_args.source, data_args.target])
+    raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t',
+                                cache_dir=model_args.cache_dir,
+                                column_names=[data_args.source_lang, data_args.target_lang, 'cmi_scores'])
     return raw_datasets
 
 def preprocess_function(examples, tokenizer, data_args):
@@ -28,8 +32,10 @@ def preprocess_function(examples, tokenizer, data_args):
     padding = "max_length" if data_args.pad_to_max_length else False
 
     ### todo: what is the format of examples? fix accordingly
-    inputs = [str(source) for source in examples[data_args.source]]
-    targets = [str(target) for target in examples[data_args.target]]
+    inputs = [str(source) for source in examples[data_args.source_lang]]
+    targets = [str(target) for target in examples[data_args.target_lang]]
+    cmi_scores = [float(cmi_score) for cmi_score in examples['cmi_scores']]
+    inputs = [prefix + inp for inp in inputs]
 
     model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
 
@@ -45,6 +51,7 @@ def preprocess_function(examples, tokenizer, data_args):
         ]
 
     model_inputs["labels"] = labels["input_ids"]
+    model_inputs["input_cmi_scores"] = torch.tensor(cmi_scores, dtype=torch.int64)
     return model_inputs
 
 def create_dataset(raw_datasets, data_args, training_args, mode='train'):

@@ -1,10 +1,10 @@
 #!/bin/bash
 
-python ./code/run_finetuning.py \
+python main.py \
 --model_name_or_path='./models/translation/prod_en_hi/checkpoint-600000' \
 --do_train --do_eval --do_predict \
---source_lang='en' --target_lang='hi' \
---output_dir='./models/translation/prod_bt' \
+--source_lang='en' --target_lang='cm' \
+--output_dir='../models/translation/prod_bt' \
 --per_device_train_batch_size=32 \
 --per_device_eval_batch_size=32 \
 --gradient_accumulation_steps=2 \
