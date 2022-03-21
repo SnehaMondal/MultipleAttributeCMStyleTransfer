@@ -39,8 +39,9 @@ from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
 import prepare_dataset as pd
-import metrics
+import metrics as mt
 from model import MT5ForStyleConditionalGeneration
+# from trainer_eval import CustomSeq2SeqTrainer
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,8 @@ class DataTrainingArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
+    source_lang: str = field(default=None, metadata={"help": "Source language id for translation."})
+    target_lang: str = field(default=None, metadata={"help": "Target language id for translation."})
     train_file: Optional[str] = field(
         default=None,
         metadata={"help": "The input training data file (a jsonlines)."
@@ -180,7 +183,7 @@ class DataTrainingArguments:
     )
 
     def __post_init__(self):
-        if self.dataset_name is None and self.train_file is None and self.validation_file is None:
+        if self.train_file is None and self.validation_file is None:
             raise ValueError("Need either a dataset name or a training/validation file.")
         elif self.source_lang is None or self.target_lang is None:
             raise ValueError("Need to specify the source language and the target language.")
@@ -208,12 +211,13 @@ def main():
     transformers.utils.logging.enable_explicit_format()
 
     # Log on each process the small summary:
-    logger.warning(
+    logger.info(
         f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}, "
         + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}, "
         + f"place model on device: {training_args.place_model_on_device}, LR : {training_args.learning_rate}, "
         + f"warmup steps : {training_args.warmup_steps}, label_smoothing factor : {training_args.label_smoothing_factor}"
     )
+    # training_args.eval_batch_size=8
     logger.info(f"Training/evaluation parameters {training_args}")
 
 
@@ -242,7 +246,6 @@ def main():
         model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         use_fast=model_args.use_fast_tokenizer,
-        revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
     model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path)
@@ -265,14 +268,18 @@ def main():
         )
 
     raw_datasets = pd.load_data(data_args, model_args)
+    # print(raw_datasets["train"])
+
     if training_args.do_train:
-        train_dataset = pd.create_dataset(raw_datasets, data_args, training_args)
+        train_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer)
+        # print(train_dataset)
 
     if training_args.do_eval:      
-        eval_dataset = pd.create_dataset(raw_datasets, data_args, training_args, mode='validation')
+        eval_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='validation')
+        print(eval_dataset)
 
     if training_args.do_predict:
-        predict_dataset = pd.create_dataset(raw_datasets, data_args, training_args, mode='test')
+        predict_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='test')
 
     # Data collator
     data_collator = pd.create_collator(data_args, training_args, tokenizer, model)
@@ -286,7 +293,7 @@ def main():
         eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        compute_metrics=metrics.compute_metrics if training_args.predict_with_generate else None,
+        compute_metrics=mt.compute_metrics if training_args.predict_with_generate else None,
     )
 
     # Training
