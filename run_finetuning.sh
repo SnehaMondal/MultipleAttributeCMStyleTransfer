@@ -5,9 +5,10 @@ python main.py \
 --source_lang='en' --target_lang='cm' \
 --output_dir='models' \
 --per_device_train_batch_size=8 \
---per_device_eval_batch_size=2 \
+--per_device_eval_batch_size=1 \
 --gradient_accumulation_steps=2 \
 --overwrite_output_dir=True \
+--predict_with_generate \
 --train_file='codemixed_generation_en_cm_train_format.tsv' \
 --validation_file='codemixed_generation_en_cm_val_format.tsv' \
 --test_file='codemixed_generation_en_cm_test_format.tsv' \
@@ -16,8 +17,8 @@ python main.py \
 --num_train_epochs=5.0 \
 --learning_rate=1e-5 \
 --warmup_ratio=0.5 \
---eval_steps=1000 \
---save_steps=1000 \
+--eval_steps=200 \
+--save_steps=200 \
 --label_smoothing_factor=0.1 \
 --weight_decay=1e-6 \
 --evaluation_strategy='steps' \

@@ -9,7 +9,7 @@ def postprocess_text(preds, labels):
 
     return preds, labels
 
-def compute_metrics(eval_preds, tokenizer, data_args, metric):
+def compute_metrics(eval_preds, tokenizer, data_args):
     preds, labels = eval_preds
     if isinstance(preds, tuple):
         preds = preds[0]

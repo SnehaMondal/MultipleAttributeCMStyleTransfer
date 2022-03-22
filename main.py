@@ -41,7 +41,7 @@ from transformers.utils.versions import require_version
 import prepare_dataset as pd
 import metrics as mt
 from model import MT5ForStyleConditionalGeneration
-# from trainer_eval import CustomSeq2SeqTrainer
+from trainer_eval import CustomSeq2SeqTrainer
 
 logger = logging.getLogger(__name__)
 
@@ -286,14 +286,14 @@ def main():
 
 
     # Initialize our Trainer
-    trainer = Seq2SeqTrainer(
+    trainer = CustomSeq2SeqTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        compute_metrics=mt.compute_metrics if training_args.predict_with_generate else None,
+        compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args) if training_args.predict_with_generate else None,
     )
 
     # Training

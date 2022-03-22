@@ -3,7 +3,7 @@ from datasets import load_dataset
 from transformers import default_data_collator, DataCollatorForSeq2Seq
 import torch
 
-prefix = "to_cm"
+prefix = "to_cm "
 
 def load_data(data_args, model_args):
     # Get the datasets: you can either provide your own JSON training and evaluation files (see below)
@@ -41,7 +41,7 @@ class CustomDataset(torch.utils.data.Dataset):
         input_ids = torch.tensor(self.inputs[index]).squeeze()
         attention_mask = torch.tensor(self.attention[index]).squeeze()
         target_ids = torch.tensor(self.targets[index]).squeeze()
-        cmi_scores = torch.tensor(self.cmi[index]).squeeze()
+        cmi_scores = (self.cmi[index]).squeeze()
 
         
         return {"input_ids": input_ids, "labels": target_ids, "attention_mask":attention_mask, "input_cmi_scores":cmi_scores}
