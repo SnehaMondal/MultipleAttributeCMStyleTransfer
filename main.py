@@ -39,8 +39,9 @@ from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
 import prepare_dataset as pd
-import metrics
+import metrics as mt
 from model import MT5ForStyleConditionalGeneration
+# from trainer_eval import CustomSeq2SeqTrainer
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,6 @@ class ModelArguments:
     """
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
     """
-
     model_name_or_path: str = field(
         default="google/mt5-small",
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
@@ -68,10 +68,6 @@ class ModelArguments:
         default=True,
         metadata={"help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."},
     )
-    model_revision: str = field(
-        default="main",
-        metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
-    )
     use_auth_token: bool = field(
         default=False,
         metadata={
@@ -86,10 +82,12 @@ class DataTrainingArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
-    source: str = field(default=None, metadata={"help": "Source id."})
-    target: str = field(default=None, metadata={"help": "Target id."})
-
-    train_file: Optional[str] = field(default=None, metadata={"help": "The input training data file (a jsonlines)."})
+    source_lang: str = field(default=None, metadata={"help": "Source language id for translation."})
+    target_lang: str = field(default=None, metadata={"help": "Target language id for translation."})
+    train_file: Optional[str] = field(
+        default=None,
+        metadata={"help": "The input training data file (a jsonlines)."
+        })
     validation_file: Optional[str] = field(
         default=None,
         metadata={
@@ -118,7 +116,7 @@ class DataTrainingArguments:
         },
     )
     max_target_length: Optional[int] = field(
-        default=512,
+        default=256,
         metadata={
             "help": "The maximum total sequence length for target text after tokenization. Sequences longer "
             "than this will be truncated, sequences shorter will be padded."
@@ -175,9 +173,6 @@ class DataTrainingArguments:
             "help": "Whether to ignore the tokens corresponding to padded labels in the loss computation or not."
         },
     )
-    source_prefix: Optional[str] = field(
-        default=None, metadata={"help": "A prefix to add before every source text (useful for T5 models)."}
-    )
     forced_bos_token: Optional[str] = field(
         default=None,
         metadata={
@@ -188,20 +183,15 @@ class DataTrainingArguments:
     )
 
     def __post_init__(self):
-        if self.dataset_name is None and self.train_file is None and self.validation_file is None:
+        if self.train_file is None and self.validation_file is None:
             raise ValueError("Need either a dataset name or a training/validation file.")
         elif self.source_lang is None or self.target_lang is None:
             raise ValueError("Need to specify the source language and the target language.")
-
         if self.val_max_target_length is None:
             self.val_max_target_length = self.max_target_length
 
 
 def main():
-    # See all possible arguments in src/transformers/training_args.py
-    # or by passing the --help flag to this script.
-    # We now keep distinct sets of args, for a cleaner separation of concerns.
-
 
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
@@ -221,12 +211,13 @@ def main():
     transformers.utils.logging.enable_explicit_format()
 
     # Log on each process the small summary:
-    logger.warning(
+    logger.info(
         f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}, "
         + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}, "
         + f"place model on device: {training_args.place_model_on_device}, LR : {training_args.learning_rate}, "
         + f"warmup steps : {training_args.warmup_steps}, label_smoothing factor : {training_args.label_smoothing_factor}"
     )
+    # training_args.eval_batch_size=8
     logger.info(f"Training/evaluation parameters {training_args}")
 
 
@@ -248,7 +239,6 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
-    raw_datasets = pd.load_data(data_args, model_args)
 
     #Load model for style conditional generation.
     logging.info(f"Loading available weights from : {model_args.model_name_or_path}")
@@ -256,7 +246,6 @@ def main():
         model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         use_fast=model_args.use_fast_tokenizer,
-        revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
     model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path)
@@ -265,8 +254,6 @@ def main():
     # Set decoder_start_token_id
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
-
-    prefix = data_args.source_prefix if data_args.source_prefix is not None else "" ### variable not used: might be needed for t5
 
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.
@@ -280,19 +267,23 @@ def main():
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
 
+    raw_datasets = pd.load_data(data_args, model_args)
+    # print(raw_datasets["train"])
+
     if training_args.do_train:
-        train_dataset = pd.create_dataset(raw_datasets, data_args, training_args)
+        train_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer)
+        # print(train_dataset)
 
     if training_args.do_eval:      
-        eval_dataset = pd.create_dataset(raw_datasets, data_args, training_args, mode='validation')
+        eval_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='validation')
+        print(eval_dataset)
 
     if training_args.do_predict:
-        predict_dataset = pd.create_dataset(raw_datasets, data_args, training_args, mode='test')
+        predict_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='test')
 
     # Data collator
     data_collator = pd.create_collator(data_args, training_args, tokenizer, model)
 
-    # Metric
 
     # Initialize our Trainer
     trainer = Seq2SeqTrainer(
@@ -302,7 +293,7 @@ def main():
         eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        compute_metrics=metrics.compute_metrics if training_args.predict_with_generate else None,
+        compute_metrics=mt.compute_metrics if training_args.predict_with_generate else None,
     )
 
     # Training
