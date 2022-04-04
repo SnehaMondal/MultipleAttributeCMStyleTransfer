@@ -1,23 +1,20 @@
+#command to run: python3 merge_train_files.py
+
 final_res = set()
 
-import sys
-fn1 = sys.argv[1]
-fn2 = sys.argv[2]
+fn1 = 'pretrain_hd_train_hi_cm.tsv'
+fn2 = 'pretrain_hd_dev_hi_cm.tsv'
+fn3 = 'finetune_hd_train_hi_cm.tsv'
 
-with open(fn1, 'r') as f:
-    for l in f:
-        l = l.strip()
-        x = l.split('\t')
-        final_res.add((x[0], x[1]))
-
-with open(fn2, 'r') as f:
-    for l in f:
-        l = l.strip()
-        x = l.split('\t')
-        final_res.add((x[0], x[1]))
+for fn in [fn1, fn2, fn3]:
+    with open(fn, 'r') as f:
+        for l in f:
+            l = l.strip()
+            x = l.split('\t')
+            final_res.add((x[0], x[1]))
 
 print(len(final_res))
-fn3 = sys.argv[3]
-of = open(fn3, 'w')
+fn4 = 'cmi_control_train.tsv'
+of = open(fn4, 'w')
 for x, y in final_res:
     of.write(x+'\t'+y+'\n')
