@@ -2,6 +2,7 @@
 
 import sys
 import numpy as np
+np.random.seed(0)
 
 def cmi(t):
     word_list = t.split()
