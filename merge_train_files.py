@@ -14,6 +14,7 @@ for fn in [fn1, fn2, fn3]:
             final_res.add((x[0], x[1]))
 
 print(len(final_res))
+
 fn4 = 'cmi_control_train.tsv'
 of = open(fn4, 'w')
 for x, y in final_res:
