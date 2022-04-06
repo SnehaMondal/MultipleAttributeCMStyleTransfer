@@ -161,7 +161,7 @@ class DataTrainingArguments:
         },
     )
     num_beams: Optional[int] = field(
-        default=4,
+        default=1,
         metadata={
             "help": "Number of beams to use for evaluation. This argument will be passed to ``model.generate``, "
             "which is used during ``evaluate`` and ``predict``."
@@ -338,8 +338,8 @@ def main():
         predict_results = trainer.predict(
             predict_dataset,
             metric_key_prefix="predict",
-            max_length=data_args.val_max_target_length,
-            num_beams=data_args.num_beams,
+          #  max_length=data_args.val_max_target_length,
+         #   num_beams=data_args.num_beams,
         )
         metrics = predict_results.metrics
         max_predict_samples = (

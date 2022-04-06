@@ -41,6 +41,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         inputs = self._prepare_inputs(inputs)
 
         # XXX: adapt synced_gpus for fairscale as well
+        #print(self._num_beams, "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
         gen_kwargs = {
             "max_length": self._max_length if self._max_length is not None else self.model.config.max_length,
             "num_beams": self._num_beams if self._num_beams is not None else self.model.config.num_beams,
