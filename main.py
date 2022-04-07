@@ -196,7 +196,8 @@ def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    log_file = 'my_log_file.log'
+    model_name = training_args.output_dir.split('/')[-1]
+    log_file = model_name+'.log'
     log_fh = logging.FileHandler(log_file)
     # Setup logging
     logging.basicConfig(

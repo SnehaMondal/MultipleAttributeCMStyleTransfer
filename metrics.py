@@ -8,7 +8,7 @@ metric = load_metric("sacrebleu")
 
 def postprocess_text(preds, labels):
     preds = [pred.strip() for pred in preds]
-    labels = [[label.strip()] for label in labels]
+    labels = [label.strip() for label in labels]
 
     return preds, labels
 
@@ -30,9 +30,9 @@ def compute_metrics(eval_preds, tokenizer, data_args):
     result = {"bleu": result["bleu"]}
 
     cmi_acc = cmi_bucket_accuracy(decoded_labels, decoded_preds)
-    result["cmi_acc"] = cmi_acc
+    result["cmi_acc"] = cmi_acc["cmi_bucket_accuracy"]
 
     cmi_corr = cmi_correlation(decoded_labels, decoded_preds)
-    result["cmi_corr"] = cmi_corr
+    result["cmi_corr"] = cmi_corr["cmi_correlation"]
     result = {k: round(v, 4) for k, v in result.items()}
     return result
