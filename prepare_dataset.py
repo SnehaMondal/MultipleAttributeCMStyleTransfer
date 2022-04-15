@@ -24,7 +24,7 @@ def load_data(data_args, model_args):
         data_files["test"] = data_args.test_file
     raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t',
                                 cache_dir=model_args.cache_dir,
-                                column_names=[data_args.source_lang, data_args.target_lang, 'cmi_scores'])
+                                column_names=[data_args.source_lang, data_args.target_lang]+data_args.attr_names)
     return raw_datasets
 
 class CustomDataset(torch.utils.data.Dataset):
@@ -32,7 +32,7 @@ class CustomDataset(torch.utils.data.Dataset):
         self.inputs = inputs['input_ids']
         self.attention = inputs['attention_mask']
         self.targets = inputs['labels']
-        self.cmi = inputs['input_cmi_scores']
+        self.style = inputs['input_style_scores']
     
     def __len__(self):
         return len(self.targets)
@@ -41,10 +41,10 @@ class CustomDataset(torch.utils.data.Dataset):
         input_ids = torch.tensor(self.inputs[index]).squeeze()
         attention_mask = torch.tensor(self.attention[index]).squeeze()
         target_ids = torch.tensor(self.targets[index]).squeeze()
-        cmi_scores = (self.cmi[index]).squeeze()
+        style_scores = (self.style[index]).squeeze()
 
         
-        return {"input_ids": input_ids, "labels": target_ids, "attention_mask":attention_mask, "input_cmi_scores":cmi_scores}
+        return {"input_ids": input_ids, "labels": target_ids, "attention_mask":attention_mask, "input_style_scores":style_scores}
 
 def preprocess_function(examples, tokenizer, data_args):
     # Temporarily set max_target_length for training.
@@ -54,7 +54,7 @@ def preprocess_function(examples, tokenizer, data_args):
     ### todo: what is the format of examples? fix accordingly
     inputs = [str(source) for source in examples[data_args.source_lang]]
     targets = [str(target) for target in examples[data_args.target_lang]]
-    cmi_scores = [float(cmi_score) for cmi_score in examples['cmi_scores']]
+    style_scores = [[float(score) for score in examples[attr]] for attr in data_args.attr_names]
     inputs = [prefix + inp for inp in inputs]
 
     model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
@@ -62,7 +62,7 @@ def preprocess_function(examples, tokenizer, data_args):
     # Setup the tokenizer for targets
     with tokenizer.as_target_tokenizer():
         labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
-
+#    print(labels)
     # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
     # padding in the loss.
     if padding == "max_length" and data_args.ignore_pad_token_for_loss:
@@ -71,7 +71,8 @@ def preprocess_function(examples, tokenizer, data_args):
         ]
 
     model_inputs["labels"] = labels["input_ids"]
-    model_inputs["input_cmi_scores"] = torch.tensor(cmi_scores, dtype=torch.float32)
+    model_inputs["input_style_scores"] = torch.tensor(cmi_scores, dtype=torch.float32)
+    model_inputs["input_style_scores"] = torch.transpose(model_inputs["input_style_scores"])
     return CustomDataset(model_inputs)
 
 def create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='train'):

@@ -181,6 +181,18 @@ class DataTrainingArguments:
             "needs to be the target language token.(Usually it is the target language token)"
         },
     )
+    num_attr: int = field(
+        default=1,
+        metadata={
+            "help": "Number of sttributes to control for"
+        },
+    )
+    attr_names: str = field(
+        nargs='+',
+        metadata={
+            "help": "Column names of the attributes to control for"
+        },
+    )
 
     def __post_init__(self):
         if self.train_file is None and self.validation_file is None:

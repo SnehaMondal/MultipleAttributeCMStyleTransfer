@@ -21,9 +21,9 @@ num_heads)`.
 
 '''In this instantiation, MT5ForStyleConditionalGeneration has the same model parameters and forward pass as the mT5 model'''
 class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
-    def __init__(self, config):
+    def __init__(self, config, num_attr):
         super().__init__(config)
-        self.cmi_style_vector = nn.Parameter(torch.rand(config.d_model))
+        self.style_vector = nn.Parameter(torch.rand(num_attr, config.d_model))
        
     def forward(
         self,
@@ -81,8 +81,9 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
         max_seq_len = hidden_states.shape[1]
 
         # print(batch_size)
-        cmi_scaled = self.cmi_style_vector.repeat(batch_size, 1) * input_cmi_scores[:, None]
-        hidden_states += cmi_scaled.view(batch_size, 1, self.config.d_model).repeat(1, max_seq_len, 1)
+        style_scaled = self.style_vector.repeat(batch_size, 1, 1) * input_style_scores[:,:, None]
+        style_weighted_sum = style_scaled.sum(axis=1)
+        hidden_states += style_weighted_sum.view(batch_size, 1, self.config.d_model).repeat(1, max_seq_len, 1)
         assert torch.equal(encoder_outputs.last_hidden_state, hidden_states)
 
 
