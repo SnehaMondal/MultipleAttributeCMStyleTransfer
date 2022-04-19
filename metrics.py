@@ -1,5 +1,6 @@
 import numpy as np
 from datasets import load_metric
+from spi import spi_bucket_accuracy, spi_correlation
 import sys
 sys.path.append('../controllable-codeximing')
 from t5.evaluation.metrics import bleu, cmi_bucket_accuracy, cmi_correlation
@@ -11,6 +12,11 @@ def postprocess_text(preds, labels):
     labels = [label.strip() for label in labels]
 
     return preds, labels
+
+def acc_bleu_hm(acc, bleu):
+    acc = acc*100
+    hm = (2*acc*bleu)/(acc+bleu)
+    return {"acc_bleu_hm": hm}
 
 def compute_metrics(eval_preds, tokenizer, data_args):
     preds, labels = eval_preds
@@ -34,5 +40,18 @@ def compute_metrics(eval_preds, tokenizer, data_args):
 
     cmi_corr = cmi_correlation(decoded_labels, decoded_preds)
     result["cmi_corr"] = cmi_corr["cmi_correlation"]
+
+    spi_acc = spi_bucket_accuracy(decoded_labels, decoded_preds)
+    result["spi_acc"] = spi_acc["spi_bucket_accuracy"]
+
+    spi_corr = spi_correlation(decoded_labels, decoded_preds)
+    result["spi_corr"] = spi_corr["spi_correlation"]
+
+    cmi_bleu_hm = cmi_acc_bleu_hm(targets, predictions)
+    result["cmi_bleu_hm"] = cmi_bleu_hm["cmi_acc_bleu_hm"]
+
+    spi_bleu_hm = acc_bleu_hm(result["spi_acc"], result["bleu"])
+    result["spi_bleu_hm"] = spi_bleu_hm["acc_bleu_hm"]
+
     result = {k: round(v, 4) for k, v in result.items()}
     return result
