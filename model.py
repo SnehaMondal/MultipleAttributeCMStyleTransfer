@@ -29,7 +29,7 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
         self,
         input_ids=None,
         attention_mask=None,
-        input_cmi_scores=None,
+        input_style_scores=None,
         decoder_input_ids=None,
         decoder_attention_mask=None,
         head_mask=None,
@@ -165,7 +165,7 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
         encoder = self.get_encoder()
 
         # 2. prepare encoder args and encoder kwargs from model kwargs
-        irrelevant_prefix = ["decoder_", "cross_attn", "use_cache", "input_cmi_"]
+        irrelevant_prefix = ["decoder_", "cross_attn", "use_cache", "input_style_"]
         encoder_kwargs = {
             argument: value
             for argument, value in model_kwargs.items()
@@ -191,17 +191,17 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
         cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
-        input_cmi_scores=None,
+        input_style_scores=None,
         **kwargs
     ):
 
         # cut decoder_input_ids if past is used
         if past is not None:
             input_ids = input_ids[:, -1:]
-        batch_size = input_cmi_scores.shape[0]
+        batch_size = input_style_scores.shape[0]
         interleaved_batch_size = encoder_outputs[0].shape[0]
         num_beams = interleaved_batch_size//batch_size
-        input_cmi_scores = torch.repeat_interleave(input_cmi_scores, num_beams, dim=0)
+        input_style_scores = torch.repeat_interleave(input_style_scores, num_beams, dim=0)
         return {
             "decoder_input_ids": input_ids,
             "past_key_values": past,
@@ -211,5 +211,5 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
             "decoder_head_mask": decoder_head_mask,
             "cross_attn_head_mask": cross_attn_head_mask,
             "use_cache": use_cache,
-            "input_cmi_scores": input_cmi_scores,
+            "input_style_scores": input_style_scores,
         }

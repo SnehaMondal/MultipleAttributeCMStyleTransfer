@@ -71,7 +71,7 @@ def preprocess_function(examples, tokenizer, data_args):
         ]
 
     model_inputs["labels"] = labels["input_ids"]
-    model_inputs["input_style_scores"] = torch.tensor(cmi_scores, dtype=torch.float32)
+    model_inputs["input_style_scores"] = torch.tensor(style_scores, dtype=torch.float32)
     model_inputs["input_style_scores"] = torch.transpose(model_inputs["input_style_scores"])
     return CustomDataset(model_inputs)
 
