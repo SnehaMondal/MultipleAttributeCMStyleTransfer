@@ -42,7 +42,6 @@ class CustomDataset(torch.utils.data.Dataset):
         attention_mask = torch.tensor(self.attention[index]).squeeze()
         target_ids = torch.tensor(self.targets[index]).squeeze()
         style_scores = (self.style[index]).squeeze()
-
         
         return {"input_ids": input_ids, "labels": target_ids, "attention_mask":attention_mask, "input_style_scores":style_scores}
 
@@ -72,7 +71,7 @@ def preprocess_function(examples, tokenizer, data_args):
 
     model_inputs["labels"] = labels["input_ids"]
     model_inputs["input_style_scores"] = torch.tensor(style_scores, dtype=torch.float32)
-    model_inputs["input_style_scores"] = torch.transpose(model_inputs["input_style_scores"])
+    model_inputs["input_style_scores"] = torch.transpose(model_inputs["input_style_scores"], 0, 1)
     return CustomDataset(model_inputs)
 
 def create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='train'):

@@ -49,8 +49,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
         if "attention_mask" in inputs:
             gen_kwargs["attention_mask"] = inputs.get("attention_mask", None)
-        if "input_cmi_scores" in inputs:    
-            gen_kwargs["input_cmi_scores"] = inputs.get("input_cmi_scores", None)
+        if "input_style_scores" in inputs:    
+            gen_kwargs["input_style_scores"] = inputs.get("input_style_scores", None)
 
         # prepare generation inputs
         # some encoder-decoder models can have varying encder's and thus

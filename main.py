@@ -22,7 +22,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 
 import datasets
 
@@ -188,11 +188,18 @@ class DataTrainingArguments:
         },
     )
     attr_names: str = field(
-        nargs='+',
+        default="cmi",
         metadata={
-            "help": "Column names of the attributes to control for"
+            "help": "Space separated attribute names"
         },
     )
+
+    #attr_names: List = field(
+     #   default_factory=lambda: ['cmi'],
+    #  metadata={
+     #       "help": "Column names of the attributes to control for"
+      #  },
+  #  )
 
     def __post_init__(self):
         if self.train_file is None and self.validation_file is None:
@@ -208,6 +215,7 @@ def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
+    data_args.attr_names = data_args.attr_names.split()
     model_name = training_args.output_dir.split('/')[-1]
     log_file = model_name+'.log'
     log_fh = logging.FileHandler(log_file)
@@ -263,7 +271,7 @@ def main():
         use_fast=model_args.use_fast_tokenizer,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path)
+    model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path, num_attr=data_args.num_attr)
     model.resize_token_embeddings(len(tokenizer))
 
     # Set decoder_start_token_id
