@@ -250,6 +250,10 @@ def main():
     )
     model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path)
     model.resize_token_embeddings(len(tokenizer))
+    for name, param in model.named_parameters():
+        if name.startswith("cmi_style"):
+            param.requires_grad = False
+            break
 
     # Set decoder_start_token_id
     if model.config.decoder_start_token_id is None:
