@@ -1,11 +1,14 @@
 import numpy as np
 from datasets import load_metric
+import sys
+sys.path.append('../controllable-codeximing')
+from t5.evaluation.metrics import bleu, cmi_bucket_accuracy, cmi_correlation
 
 metric = load_metric("sacrebleu")
 
 def postprocess_text(preds, labels):
     preds = [pred.strip() for pred in preds]
-    labels = [[label.strip()] for label in labels]
+    labels = [label.strip() for label in labels]
 
     return preds, labels
 
@@ -22,10 +25,14 @@ def compute_metrics(eval_preds, tokenizer, data_args):
     # Some simple post-processing
     decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
 
-    result = metric.compute(predictions=decoded_preds, references=decoded_labels)
-    result = {"bleu": result["score"]}
+    result = bleu(decoded_labels, decoded_preds)
+#    result = metric.compute(predictions=decoded_preds, references=decoded_labels)
+    result = {"bleu": result["bleu"]}
 
-    prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]
-    result["gen_len"] = np.mean(prediction_lens)
+    cmi_acc = cmi_bucket_accuracy(decoded_labels, decoded_preds)
+    result["cmi_acc"] = cmi_acc["cmi_bucket_accuracy"]
+
+    cmi_corr = cmi_correlation(decoded_labels, decoded_preds)
+    result["cmi_corr"] = cmi_corr["cmi_correlation"]
     result = {k: round(v, 4) for k, v in result.items()}
     return result

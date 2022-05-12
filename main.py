@@ -161,7 +161,7 @@ class DataTrainingArguments:
         },
     )
     num_beams: Optional[int] = field(
-        default=4,
+        default=1,
         metadata={
             "help": "Number of beams to use for evaluation. This argument will be passed to ``model.generate``, "
             "which is used during ``evaluate`` and ``predict``."
@@ -196,11 +196,14 @@ def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
+    model_name = training_args.output_dir.split('/')[-1]
+    log_file = model_name+'.log'
+    log_fh = logging.FileHandler(log_file)
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
+        handlers=[logging.StreamHandler(sys.stdout), log_fh],
     )
 
     log_level = training_args.get_process_log_level()
@@ -321,9 +324,9 @@ def main():
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
 
-        metrics = trainer.evaluate(
-            max_length=data_args.val_max_target_length, num_beams=data_args.num_beams, metric_key_prefix="eval"
-        )
+        metrics = trainer.evaluate()
+#            max_length=data_args.val_max_target_length, num_beams=data_args.num_beams, metric_key_prefix="eval"
+#        )
         max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
         metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
 
@@ -336,8 +339,8 @@ def main():
         predict_results = trainer.predict(
             predict_dataset,
             metric_key_prefix="predict",
-            max_length=data_args.val_max_target_length,
-            num_beams=data_args.num_beams,
+          #  max_length=data_args.val_max_target_length,
+         #   num_beams=data_args.num_beams,
         )
         metrics = predict_results.metrics
         max_predict_samples = (
