@@ -71,7 +71,7 @@ def compute_metrics(eval_preds, tokenizer, data_args):
 	result = {"bleu": result["bleu"]}
 
 	cmi_acc = cmi_bucket_accuracy(decoded_labels, decoded_preds)
-	result["cmi_acc"] = cmi_acc["cmi_bucket_accuracy"]
+	result["cmi_acc"] = cmi_acc["cmi_bucket_accuracy"]*100
 
 	cmi_corr = cmi_correlation(decoded_labels, decoded_preds)
 	result["cmi_corr"] = cmi_corr["cmi_correlation"]
