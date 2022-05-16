@@ -1,5 +1,6 @@
 import numpy as np
 from datasets import load_metric
+from statistics import harmonic_mean
 import sys
 sys.path.append('../controllable-codeximing')
 from t5.evaluation.metrics import bleu, cmi_bucket_accuracy, cmi_correlation
@@ -11,6 +12,11 @@ def postprocess_text(preds, labels):
     labels = [label.strip() for label in labels]
 
     return preds, labels
+
+def acc_bleu_hm(cmi_acc,  bleu):
+    cmi_acc = cmi_acc*100
+    hm = harmonic_mean([cmi_acc, bleu])
+    return {"acc_bleu_hm": hm}
 
 def compute_metrics(eval_preds, tokenizer, data_args):
     preds, labels = eval_preds
@@ -34,5 +40,9 @@ def compute_metrics(eval_preds, tokenizer, data_args):
 
     cmi_corr = cmi_correlation(decoded_labels, decoded_preds)
     result["cmi_corr"] = cmi_corr["cmi_correlation"]
+
+    cmi_bleu_hm = acc_bleu_hm(result["cmi_acc"], result["bleu"])
+    result["cmi_bleu_hm"] = cmi_bleu_hm["acc_bleu_hm"]
+
     result = {k: round(v, 4) for k, v in result.items()}
     return result
