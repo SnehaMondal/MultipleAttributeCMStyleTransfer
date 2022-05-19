@@ -24,10 +24,10 @@ def load_data(data_args, model_args):
         data_files["test"] = data_args.test_file
     raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t',
                                 cache_dir=model_args.cache_dir,
-                                column_names=[data_args.source_lang, data_args.target_lang]+data_args.attr_names)
+                                column_names=[data_args.source_lang, data_args.target_lang]+data_args.attr_names+['attr_truth'])
     return raw_datasets
 
-class CustomDataset(torch.utils.data.Dataset):
+class CustomDatasetGenerate(torch.utils.data.Dataset):
     def __init__(self, inputs):
         self.inputs = inputs['input_ids']
         self.attention = inputs['attention_mask']
@@ -45,7 +45,7 @@ class CustomDataset(torch.utils.data.Dataset):
         
         return {"input_ids": input_ids, "labels": target_ids, "attention_mask":attention_mask, "input_style_scores":style_scores}
 
-def preprocess_function(examples, tokenizer, data_args):
+def preprocess_function_generate(examples, tokenizer, data_args):
     # Temporarily set max_target_length for training.
     max_target_length = data_args.max_target_length
     padding = "max_length" if data_args.pad_to_max_length else False
@@ -72,7 +72,7 @@ def preprocess_function(examples, tokenizer, data_args):
     model_inputs["labels"] = labels["input_ids"]
     model_inputs["input_style_scores"] = torch.tensor(style_scores, dtype=torch.float32)
     model_inputs["input_style_scores"] = torch.transpose(model_inputs["input_style_scores"], 0, 1)
-    return CustomDataset(model_inputs)
+    return CustomDatasetGenerate(model_inputs)
 
 def create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='train'):
     if mode=='train':
@@ -83,7 +83,7 @@ def create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='trai
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
         with training_args.main_process_first(desc="train dataset map pre-processing"):
-            train_dataset = preprocess_function(train_dataset, tokenizer, data_args)
+            train_dataset_generate = preprocess_function_generate(train_dataset, tokenizer, data_args)
             # train_dataset = train_dataset.map(
             #     preprocess_function,
             #     batched=True,
@@ -93,7 +93,7 @@ def create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='trai
             #     fn_kwargs={'tokenizer':tokenizer, 'data_args':data_args},
             #     desc="Running tokenizer on train dataset",
             # )
-        return train_dataset
+        return train_dataset_generate
     elif mode=='validation':
         max_target_length = data_args.val_max_target_length
         if "validation" not in raw_datasets:
