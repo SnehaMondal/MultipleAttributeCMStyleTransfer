@@ -1,23 +1,22 @@
 #!/bin/bash
 
 python train_mt5_base_fewshot.py \
---do_train --do_eval --do_predict \
+--do_train --do_eval  \
 --source_lang='en' --target_lang='cm' \
---output_dir='./models/few_shot/base' \
+--output_dir='./models/formal_parallel_base' \
 --per_device_train_batch_size=8 \
 --per_device_eval_batch_size=8 \
 --gradient_accumulation_steps=2 \
---overwrite_output_dir=True \
+--overwrite_output_dir=False \
 --predict_with_generate \
---train_file='./data/few_shot_training/base_train.tsv' \
---validation_file='./data/few_shot_training/base_dev.tsv' \
---test_file=./data/few_shot_training/base_test.tsv \
+--train_file='../cm_data/formal_news_train.csv' \
+--validation_file='../cm_data/formal_news_dev.csv' \
 --load_best_model_at_end \
---metric_for_best_model='loss' \
---num_train_epochs=1.0 \
+--metric_for_best_model='bleu' \
+--num_train_epochs=30.0 \
 --learning_rate=5e-4 \
---eval_steps=10 \
---save_steps=10 \
+--eval_steps=350 \
+--save_steps=350 \
 --evaluation_strategy='steps' \
 --save_strategy='steps' \
 --lr_scheduler_type='constant' \
@@ -26,4 +25,5 @@ python train_mt5_base_fewshot.py \
 --optim='adafactor' \
 --max_source_length=128 \
 --max_target_length=128 \
---max_train_samples=100
+--save_total_limit=1 \
+--source_prefix='to_hi'
