@@ -41,6 +41,7 @@ from transformers.utils.versions import require_version
 import prepare_dataset as pd
 import metrics as mt
 from model import MT5ForStyleConditionalGeneration
+from classifier_model import ClassifierModel
 from trainer_eval import CustomSeq2SeqTrainer
 
 logger = logging.getLogger(__name__)
@@ -272,6 +273,7 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
     model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path, num_attr=data_args.num_attr)
+    classification_model = ClassifierModel(model.style_vector, data_args.num_attr, 512) ##TODO: remove hardcoding
     model.resize_token_embeddings(len(tokenizer))
 
     # Set decoder_start_token_id
@@ -294,19 +296,21 @@ def main():
     # print(raw_datasets["train"])
 
     if training_args.do_train:
-        train_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer)
+        train_dataset_generate, train_dataset_classify = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer)
         # print(train_dataset)
 
     if training_args.do_eval:      
-        eval_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='validation')
-        print(eval_dataset)
+        eval_dataset_generate, eval_dataset_classify = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='validation')
+        # print(eval_dataset)
 
     if training_args.do_predict:
-        predict_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='test')
+        predict_dataset_generate, predict_dataset_classify = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='test')
 
     # Data collator
     data_collator = pd.create_collator(data_args, training_args, tokenizer, model)
 
+
+    ## TODO: Training Loop follows
 
     # Initialize our Trainer
     trainer = CustomSeq2SeqTrainer(
