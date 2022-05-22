@@ -8,8 +8,8 @@
 
 python run_fudge.py \
 --input_filename='./data/cmi_control_test_vector_oracle.tsv' \
---output_directory='./results/fudge/mt5_cmi_style' \
---path_to_cmgen_model='./models/mt5_hd_ft_cmi_vector/checkpoint-70000' \
+--output_directory='./results/fudge/translation_pretrained_ft_cmi_vector' \
+--path_to_cmgen_model='./models/translation_pretrained_ft_cmi_vector/checkpoint-41000' \
 --path_to_predictor='xlm-roberta-base' \
 --beam_width=4
 

@@ -144,7 +144,7 @@ def fudge_beam_search(
 				curr_batch = xlm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt")
 				for k, v in curr_batch.items():
 					curr_batch[k] = v.to(device)
-				condition_logits += conditioning_model(**curr_batch).logits[:, 0]
+				condition_logits += conditioning_model(**curr_batch).logits[:, 1]
 			condition_logits = torch.stack(condition_logits, dim=0).view(num_beams, effective_vocab_size)
 
 		full_logits = top_logits + condition_lambda * condition_logits
@@ -229,7 +229,7 @@ references = []
 cmi_scores = []
 task_prefix = "to_cm "
 with open(args.input_filename, "r") as f:
-	for line in f.readlines():
+	for line in f.readlines()[:250]:
 		components = line.strip().split('\t')
 		input_texts.append(task_prefix + components[0])
 		references.append(components[1])
