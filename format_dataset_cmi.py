@@ -42,19 +42,21 @@ with open(fn1, 'r') as f:
         src, tgt = l.split('\t')[:2]
         val1 = 0
         val2 = 0
-        if mode=="dev":
-            r = np.random.rand()
-            if r>0.2:
-                val1 = 0.1+cmi(tgt)
-                val1 = round(val1, 3)
-                val2 = 0.1+get_i_index(tgt)
-                val2 = round(val2, 3)
-            else: zeros+=1
-        elif mode=="oracle":
-            val1 = 0.1+cmi(tgt)
+        if mode=='cmi':
+            val1 = cmi(tgt)
             val1 = round(val1, 3)
-            val2 = 0.1+get_i_index(tgt)
+            of.write(src+'\t'+tgt+'\t'+str(val1)+'\n')
+        elif mode=='spi':
+            val2 = get_i_index(tgt)
             val2 = round(val2, 3)
-        of.write(src+'\t'+tgt+'\t'+str(val1)+'\t'+str(val2)+'\n')
+            of.write(src+'\t'+tgt+'\t'+str(val2)+'\n')
+        elif mode=='both':
+            val1 = cmi(tgt)
+            val1 = round(val1, 3)
+            val2 = get_i_index(tgt)
+            val2 = round(val2, 3)
+            of.write(src+'\t'+tgt+'\t'+str(val1)+'\t'+str(val2)+'\n')
+        else:
+            assert False
 
 print(zeros)
