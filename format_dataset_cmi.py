@@ -1,3 +1,4 @@
+#command to run: python3 format_dataset_cmi.py {input_file} {output_file} {mode}
 import sys
 import numpy as np
 
