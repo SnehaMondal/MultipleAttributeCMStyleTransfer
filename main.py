@@ -22,7 +22,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 
 import datasets
 
@@ -181,6 +181,25 @@ class DataTrainingArguments:
             "needs to be the target language token.(Usually it is the target language token)"
         },
     )
+    num_attr: int = field(
+        default=1,
+        metadata={
+            "help": "Number of sttributes to control for"
+        },
+    )
+    attr_names: str = field(
+        default="cmi",
+        metadata={
+            "help": "Space separated attribute names"
+        },
+    )
+
+    #attr_names: List = field(
+     #   default_factory=lambda: ['cmi'],
+    #  metadata={
+     #       "help": "Column names of the attributes to control for"
+      #  },
+  #  )
 
     def __post_init__(self):
         if self.train_file is None and self.validation_file is None:
@@ -196,6 +215,7 @@ def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
+    data_args.attr_names = data_args.attr_names.split()
     model_name = training_args.output_dir.split('/')[-1]
     log_file = model_name+'.log'
     log_fh = logging.FileHandler(log_file)
@@ -251,7 +271,7 @@ def main():
         use_fast=model_args.use_fast_tokenizer,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path)
+    model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path, num_attr=data_args.num_attr)
     model.resize_token_embeddings(len(tokenizer))
 
     # Set decoder_start_token_id
@@ -325,8 +345,6 @@ def main():
         logger.info("*** Evaluate ***")
 
         metrics = trainer.evaluate()
-#            max_length=data_args.val_max_target_length, num_beams=data_args.num_beams, metric_key_prefix="eval"
-#        )
         max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
         metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
 
@@ -339,8 +357,6 @@ def main():
         predict_results = trainer.predict(
             predict_dataset,
             metric_key_prefix="predict",
-          #  max_length=data_args.val_max_target_length,
-         #   num_beams=data_args.num_beams,
         )
         metrics = predict_results.metrics
         max_predict_samples = (

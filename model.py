@@ -21,15 +21,15 @@ num_heads)`.
 
 '''In this instantiation, MT5ForStyleConditionalGeneration has the same model parameters and forward pass as the mT5 model'''
 class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
-    def __init__(self, config):
+    def __init__(self, config, num_attr):
         super().__init__(config)
-        self.cmi_style_vector = nn.Parameter(torch.rand(config.d_model))
+        self.style_vector = nn.Parameter(torch.rand(num_attr, config.d_model))
        
     def forward(
         self,
         input_ids=None,
         attention_mask=None,
-        input_cmi_scores=None,
+        input_style_scores=None,
         decoder_input_ids=None,
         decoder_attention_mask=None,
         head_mask=None,
@@ -81,8 +81,9 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
         max_seq_len = hidden_states.shape[1]
 
         # print(batch_size)
-        cmi_scaled = self.cmi_style_vector.repeat(batch_size, 1) * input_cmi_scores[:, None]
-        hidden_states += cmi_scaled.view(batch_size, 1, self.config.d_model).repeat(1, max_seq_len, 1)
+        style_scaled = self.style_vector.repeat(batch_size, 1, 1) * input_style_scores[:,:, None]
+        style_weighted_sum = style_scaled.sum(axis=1)
+        hidden_states += style_weighted_sum.view(batch_size, 1, self.config.d_model).repeat(1, max_seq_len, 1)
         assert torch.equal(encoder_outputs.last_hidden_state, hidden_states)
 
 
@@ -164,7 +165,7 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
         encoder = self.get_encoder()
 
         # 2. prepare encoder args and encoder kwargs from model kwargs
-        irrelevant_prefix = ["decoder_", "cross_attn", "use_cache", "input_cmi_"]
+        irrelevant_prefix = ["decoder_", "cross_attn", "use_cache", "input_style_"]
         encoder_kwargs = {
             argument: value
             for argument, value in model_kwargs.items()
@@ -190,17 +191,17 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
         cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
-        input_cmi_scores=None,
+        input_style_scores=None,
         **kwargs
     ):
 
         # cut decoder_input_ids if past is used
         if past is not None:
             input_ids = input_ids[:, -1:]
-        batch_size = input_cmi_scores.shape[0]
+        batch_size = input_style_scores.shape[0]
         interleaved_batch_size = encoder_outputs[0].shape[0]
         num_beams = interleaved_batch_size//batch_size
-        input_cmi_scores = torch.repeat_interleave(input_cmi_scores, num_beams, dim=0)
+        input_style_scores = torch.repeat_interleave(input_style_scores, num_beams, dim=0)
         return {
             "decoder_input_ids": input_ids,
             "past_key_values": past,
@@ -210,5 +211,5 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
             "decoder_head_mask": decoder_head_mask,
             "cross_attn_head_mask": cross_attn_head_mask,
             "use_cache": use_cache,
-            "input_cmi_scores": input_cmi_scores,
+            "input_style_scores": input_style_scores,
         }
