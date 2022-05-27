@@ -22,10 +22,22 @@ def load_data(data_args, model_args):
         data_files["validation"] = data_args.validation_file
     if data_args.test_file is not None:
         data_files["test"] = data_args.test_file
-    raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t',
+    raw_datasets_generate = load_dataset('csv', data_files=data_files, delimiter = '\t',
                                 cache_dir=model_args.cache_dir,
-                                column_names=[data_args.source_lang, data_args.target_lang]+data_args.attr_names+['attr_truth'])
-    return raw_datasets
+                                column_names=[data_args.source_lang, data_args.target_lang]+data_args.attr_names)
+
+    data_files_classify = {}
+    if data_args.train_file_classify is not None:
+        data_files_classify["train"] = data_args.train_file_classify
+    if data_args.validation_file_classify is not None:
+        data_files_classify["validation"] = data_args.validation_file_classify
+    if data_args.test_file_classify is not None:
+        data_files_classify["test"] = data_args.test_file_classify
+    raw_datasets_classify = load_dataset('csv', data_files=data_files_classify, delimiter = '\t',
+                                cache_dir=model_args.cache_dir,
+                                column_names=[data_args.source_lang]+data_args.attr_names+['attr_truth'])
+    return raw_datasets_generate, raw_datasets_classify
+
 
 class CustomDatasetGenerate(torch.utils.data.Dataset):
     def __init__(self, inputs):
@@ -41,9 +53,28 @@ class CustomDatasetGenerate(torch.utils.data.Dataset):
         input_ids = torch.tensor(self.inputs[index]).squeeze()
         attention_mask = torch.tensor(self.attention[index]).squeeze()
         target_ids = torch.tensor(self.targets[index]).squeeze()
-        style_scores = (self.style[index]).squeeze()
+        style_scores = self.style[index]
         
         return {"input_ids": input_ids, "labels": target_ids, "attention_mask":attention_mask, "input_style_scores":style_scores}
+
+
+class CustomDatasetClassify(torch.utils.data.Dataset):
+    def __init__(self, inputs):
+        self.inputs = inputs['input_ids']
+        self.attention = inputs['attention_mask']
+        self.attr = inputs['attr_truth']
+        self.style = inputs["input_style_scores"]
+    
+    def __len__(self):
+        return len(self.inputs)
+    
+    def __getitem__(self, index):
+        input_ids = torch.tensor(self.inputs[index]).squeeze()
+        attention_mask = torch.tensor(self.attention[index]).squeeze()
+        attr_labels = (self.attr[index]).squeeze()
+        style_scores = self.style[index]
+        
+        return {"input_ids": input_ids, "attention_mask":attention_mask, "attr_labels":attr_labels, "input_style_scores":style_scores}
 
 def preprocess_function_generate(examples, tokenizer, data_args):
     # Temporarily set max_target_length for training.
@@ -74,67 +105,86 @@ def preprocess_function_generate(examples, tokenizer, data_args):
     model_inputs["input_style_scores"] = torch.transpose(model_inputs["input_style_scores"], 0, 1)
     return CustomDatasetGenerate(model_inputs)
 
+def preprocess_function_classify(examples, tokenizer, data_args):
+    # Temporarily set max_target_length for training.
+    padding = "max_length" if data_args.pad_to_max_length else False
+
+    ### todo: what is the format of examples? fix accordingly
+    inputs = [str(source) for source in examples[data_args.source_lang]]
+    attr_truth = [int(x) for x in examples['attr_truth']]
+    style_scores = [[float(score) for score in examples[attr]] for attr in data_args.attr_names]
+
+    model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
+
+    model_inputs["attr_truth"] = torch.tensor(attr_truth, dtype=torch.int32)  
+    model_inputs["input_style_scores"] = torch.tensor(style_scores, dtype=torch.float32)
+    model_inputs["input_style_scores"] = torch.transpose(model_inputs["input_style_scores"], 0, 1)
+    return CustomDatasetClassify(model_inputs)
+
 def create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='train'):
     if mode=='train':
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
-        column_names = raw_datasets["train"].column_names
         train_dataset = raw_datasets["train"]
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
         with training_args.main_process_first(desc="train dataset map pre-processing"):
-            train_dataset_generate = preprocess_function_generate(train_dataset, tokenizer, data_args)
-            # train_dataset = train_dataset.map(
-            #     preprocess_function,
-            #     batched=True,
-            #     num_proc=data_args.preprocessing_num_workers,
-            #     remove_columns=column_names,
-            #     load_from_cache_file=not data_args.overwrite_cache,
-            #     fn_kwargs={'tokenizer':tokenizer, 'data_args':data_args},
-            #     desc="Running tokenizer on train dataset",
-            # )
-        return train_dataset_generate
+            train_dataset = preprocess_function_generate(train_dataset, tokenizer, data_args)
+        return train_dataset
     elif mode=='validation':
         max_target_length = data_args.val_max_target_length
         if "validation" not in raw_datasets:
             raise ValueError("--do_eval requires a validation dataset")
-        column_names = raw_datasets["validation"].column_names
         eval_dataset = raw_datasets["validation"]
         if data_args.max_eval_samples is not None:
             eval_dataset = eval_dataset.select(range(data_args.max_eval_samples))
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
-            eval_dataset = preprocess_function(eval_dataset, tokenizer, data_args)
-            # eval_dataset = eval_dataset.map(
-            #     preprocess_function,
-            #     batched=True,
-            #     num_proc=data_args.preprocessing_num_workers,
-            #     remove_columns=column_names,
-            #     load_from_cache_file=not data_args.overwrite_cache,
-            #     fn_kwargs={'tokenizer':tokenizer, 'data_args':data_args},
-            #     desc="Running tokenizer on validation dataset",
-            # )
+            eval_dataset = preprocess_function_generate(eval_dataset, tokenizer, data_args)
         return eval_dataset
     elif mode=='test':
         max_target_length = data_args.val_max_target_length
         if "test" not in raw_datasets:
             raise ValueError("--do_predict requires a test dataset")
-        column_names = raw_datasets["test"].column_names
         predict_dataset = raw_datasets["test"]
         if data_args.max_predict_samples is not None:
             predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
         with training_args.main_process_first(desc="prediction dataset map pre-processing"):
-            predict_dataset = preprocess_function(predict_dataset, tokenizer, data_args)
-            # predict_dataset = predict_dataset.map(
-            #     preprocess_function,
-            #     batched=True,
-            #     num_proc=data_args.preprocessing_num_workers,
-            #     remove_columns=column_names,
-            #     load_from_cache_file=not data_args.overwrite_cache,
-            #     fn_kwargs={'tokenizer':tokenizer, 'data_args':data_args},
-            #     desc="Running tokenizer on prediction dataset",
-            # )
+            predict_dataset = preprocess_function_generate(predict_dataset, tokenizer, data_args)
         return predict_dataset
     else: raise ValueError("wrong mode for create_dataset function")
+
+def create_dataset_classify(raw_datasets, data_args, training_args, tokenizer, mode='train'):
+    if mode=='train':
+        if "train" not in raw_datasets:
+            raise ValueError("--do_train requires a train dataset")
+        train_dataset = raw_datasets["train"]
+        if data_args.max_train_classify_samples is not None:
+            train_dataset = train_dataset.select(range(data_args.max_train_classify_samples))
+        with training_args.main_process_first(desc="train dataset map pre-processing"):
+            train_dataset = preprocess_function_classify(train_dataset, tokenizer, data_args)
+        return train_dataset
+    elif mode=='validation':
+        max_target_length = data_args.val_max_target_length
+        if "validation" not in raw_datasets:
+            raise ValueError("--do_eval requires a validation dataset")
+        eval_dataset = raw_datasets["validation"]
+        if data_args.max_eval_classify_samples is not None:
+            eval_dataset = eval_dataset.select(range(data_args.max_eval_classify_samples))
+        with training_args.main_process_first(desc="validation dataset map pre-processing"):
+            eval_dataset = preprocess_function_classify(eval_dataset, tokenizer, data_args)
+        return eval_dataset
+    elif mode=='test':
+        max_target_length = data_args.val_max_target_length
+        if "test" not in raw_datasets:
+            raise ValueError("--do_predict requires a test dataset")
+        predict_dataset = raw_datasets["test"]
+        if data_args.max_predict_classify_samples is not None:
+            predict_dataset = predict_dataset.select(range(data_args.max_predict_classify_samples))
+        with training_args.main_process_first(desc="prediction dataset map pre-processing"):
+            predict_dataset = preprocess_function_classify(predict_dataset, tokenizer, data_args)
+        return predict_dataset
+    else: raise ValueError("wrong mode for create_dataset function")
+
 
 def create_collator(data_args, training_args, tokenizer, model):
     label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else tokenizer.pad_token_id

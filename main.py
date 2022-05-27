@@ -41,6 +41,7 @@ from transformers.utils.versions import require_version
 import prepare_dataset as pd
 import metrics as mt
 from model import MT5ForStyleConditionalGeneration
+from classifier_model import ClassifierModel
 from trainer_eval import CustomSeq2SeqTrainer
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,23 @@ class DataTrainingArguments:
             "help": "An optional input test data file to evaluate the metrics (sacreblue) on " "a jsonlines file."
         },
     )
+    train_file_classify: Optional[str] = field(
+        default=None,
+        metadata={"help": "The input training data file (a jsonlines)."
+        })
+    validation_file_classify: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "An optional input evaluation data file to evaluate the metrics (sacreblue) on "
+            "a jsonlines file."
+        },
+    )
+    test_file_classify: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "An optional input test data file to evaluate the metrics (sacreblue) on " "a jsonlines file."
+        },
+    )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
     )
@@ -154,6 +172,27 @@ class DataTrainingArguments:
         },
     )
     max_predict_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of prediction examples to this "
+            "value if set."
+        },
+    )
+    max_train_classify_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of training examples to this "
+            "value if set."
+        },
+    )
+    max_eval_classify_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
+            "value if set."
+        },
+    )
+    max_predict_classify_samples: Optional[int] = field(
         default=None,
         metadata={
             "help": "For debugging purposes or quicker training, truncate the number of prediction examples to this "
@@ -272,6 +311,7 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
     model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path, num_attr=data_args.num_attr)
+    classification_model = ClassifierModel(model.style_vector, data_args.num_attr, 512) ##TODO: remove hardcoding
     model.resize_token_embeddings(len(tokenizer))
 
     # Set decoder_start_token_id
@@ -290,23 +330,27 @@ def main():
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
 
-    raw_datasets = pd.load_data(data_args, model_args)
+    raw_datasets_generate, raw_datasets_classify = pd.load_data(data_args, model_args)
     # print(raw_datasets["train"])
 
     if training_args.do_train:
-        train_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer)
+        train_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer)
+        train_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer)
         # print(train_dataset)
 
     if training_args.do_eval:      
-        eval_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='validation')
-        print(eval_dataset)
+        eval_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='validation')
+        eval_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='validation')
+        # print(eval_dataset)
 
     if training_args.do_predict:
-        predict_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='test')
+        predict_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='test')
+        predict_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='test')
 
     # Data collator
     data_collator = pd.create_collator(data_args, training_args, tokenizer, model)
-
+    assert False
+    ## TODO: Training Loop follows
 
     # Initialize our Trainer
     trainer = CustomSeq2SeqTrainer(
