@@ -276,7 +276,7 @@ def main():
     print("FREEZE")
     time.sleep(5)
     for name, param in model.named_parameters():
-        if name.startswith("cmi_style"):
+        if name.startswith("style_vector"):
             param.requires_grad = False
             print("Freezing cmi style vector")
             print(name, param.requires_grad)
