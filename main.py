@@ -161,6 +161,27 @@ class DataTrainingArguments:
             "value if set."
         },
     )
+    max_train_classify_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of training examples to this "
+            "value if set."
+        },
+    )
+    max_eval_classify_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
+            "value if set."
+        },
+    )
+    max_predict_classify_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of prediction examples to this "
+            "value if set."
+        },
+    )
     num_beams: Optional[int] = field(
         default=1,
         metadata={
@@ -292,19 +313,22 @@ def main():
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
 
-    raw_datasets = pd.load_data(data_args, model_args)
+    raw_datasets_generate, raw_datasets_classify = pd.load_data(data_args, model_args)
     # print(raw_datasets["train"])
 
     if training_args.do_train:
-        train_dataset_generate, train_dataset_classify = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer)
+        train_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer)
+        train_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer)
         # print(train_dataset)
 
     if training_args.do_eval:      
-        eval_dataset_generate, eval_dataset_classify = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='validation')
+        eval_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='validation')
+        eval_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='validation')
         # print(eval_dataset)
 
     if training_args.do_predict:
-        predict_dataset_generate, predict_dataset_classify = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='test')
+        predict_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='test')
+        predict_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='test')
 
     # Data collator
     data_collator = pd.create_collator(data_args, training_args, tokenizer, model)
