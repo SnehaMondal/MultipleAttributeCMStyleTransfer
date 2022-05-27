@@ -102,6 +102,23 @@ class DataTrainingArguments:
             "help": "An optional input test data file to evaluate the metrics (sacreblue) on " "a jsonlines file."
         },
     )
+    train_file_classify: Optional[str] = field(
+        default=None,
+        metadata={"help": "The input training data file (a jsonlines)."
+        })
+    validation_file_classify: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "An optional input evaluation data file to evaluate the metrics (sacreblue) on "
+            "a jsonlines file."
+        },
+    )
+    test_file_classify: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "An optional input test data file to evaluate the metrics (sacreblue) on " "a jsonlines file."
+        },
+    )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
     )
@@ -332,7 +349,6 @@ def main():
 
     # Data collator
     data_collator = pd.create_collator(data_args, training_args, tokenizer, model)
-
 
     ## TODO: Training Loop follows
 

@@ -48,13 +48,13 @@ buckets = ['cmi_lo', 'cmi_mid', 'cmi_hi']
 with open(fn1, 'r') as f:
     for l in f:
         l = l.strip()
-        src, _ = l.split('\t')[:2]
+        _, src = l.split('\t')[:2]
         val1 = 0
-        val1 = cmi(tgt)
-        true_bucket = get_cmi_tag(src)
+        val1 = cmi(src)
+        true_bucket = get_cmi_bucket_tag(src)
         of.write(src+'\t'+str(val1)+'\t1\n')
         for x in buckets:
-            if x!=true_bucket
-            fake_cmi = get_random_cmi(x)
-            of.write*src+'\t'_str(fake_cmi)+'\t0\n')
+            if x!=true_bucket:
+                fake_cmi = get_random_cmi(x)
+                of.write(src+'\t'+str(fake_cmi)+'\t0\n')
 
