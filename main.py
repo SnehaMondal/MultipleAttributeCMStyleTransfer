@@ -21,6 +21,9 @@ Fine-tuning the library models for sequence to sequence.
 import logging
 import os
 import sys
+import math
+import torch
+from tqdm import tqdm
 from dataclasses import dataclass, field
 from typing import Optional, List
 
@@ -31,8 +34,11 @@ from transformers import (
     T5Tokenizer, T5Config,
     HfArgumentParser,
     Seq2SeqTrainer,
+    AdamW,
     Seq2SeqTrainingArguments,
     set_seed,
+    SchedulerType,
+    get_scheduler,
 )
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
@@ -43,6 +49,8 @@ import metrics as mt
 from model import MT5ForStyleConditionalGeneration
 from classifier_model import ClassifierModel
 from trainer_eval import CustomSeq2SeqTrainer
+
+from torch.utils.data import DataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -335,78 +343,121 @@ def main():
 
 
     ## TODO: Training Loop follows
+    ## collator separate or not?
 
-    # Initialize our Trainer
-    trainer = CustomSeq2SeqTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-        compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args) if training_args.predict_with_generate else None,
+    train_dataloader_generate = DataLoader(
+        train_dataset_generate, shuffle=True, collate_fn=data_collator, batch_size=training_args.per_device_train_batch_size
+    )
+    eval_dataloader_generate = DataLoader(eval_dataset_generate, collate_fn=data_collator, batch_size=training_args.per_device_eval_batch_size)
+
+    train_dataloader_classify = DataLoader(
+        train_dataset_classify, shuffle=True, collate_fn=data_collator, batch_size=training_args.per_device_train_batch_size
+    )
+    eval_dataloader_classify = DataLoader(eval_dataset_classify, collate_fn=data_collator, batch_size=training_args.per_device_eval_batch_size)
+
+    no_decay = ["bias", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "weight_decay": training_args.weight_decay,
+        },
+        {
+            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0,
+        },
+    ]
+    optimizer_generate = AdamW(optimizer_grouped_parameters, lr=training_args.learning_rate)
+
+    optimizer_grouped_parameters_classify = [
+        {
+            "params": [p for n, p in classification_model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "weight_decay": training_args.weight_decay,
+        },
+        {
+            "params": [p for n, p in classification_model.named_parameters() if any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0,
+        },
+    ]
+    optimizer_classify = AdamW(optimizer_grouped_parameters_classify, lr=training_args.learning_rate)
+
+    num_update_steps_per_epoch = math.ceil(len(train_dataloader_generate) / training_args.gradient_accumulation_steps)
+    training_args.max_train_steps = training_args.num_train_epochs * num_update_steps_per_epoch
+
+    lr_scheduler_generate = get_scheduler(
+        name=training_args.lr_scheduler_type,
+        optimizer=optimizer_generate,
+        num_warmup_steps=training_args.num_warmup_steps,
+        num_training_steps=training_args.max_train_steps,
     )
 
-    # Training
-    if training_args.do_train:
-        checkpoint = None
-        if training_args.resume_from_checkpoint is not None:
-            checkpoint = training_args.resume_from_checkpoint
-        elif last_checkpoint is not None:
-            checkpoint = last_checkpoint
-        train_result = trainer.train(resume_from_checkpoint=checkpoint)
-        trainer.save_model()  # Saves the tokenizer too for easy upload
+    lr_scheduler_classify = get_scheduler(
+        name=training_args.lr_scheduler_type,
+        optimizer=optimizer_classify,
+        num_warmup_steps=training_args.num_warmup_steps,
+        num_training_steps=training_args.max_train_steps,
+    )
 
-        metrics = train_result.metrics
-        max_train_samples = (
-            data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
-        )
-        metrics["train_samples"] = min(max_train_samples, len(train_dataset))
+    if training_args.with_tracking:
+        experiment_config = vars(training_args)
+        # TensorBoard cannot log Enums, need the raw value
+        experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
 
-        trainer.log_metrics("train", metrics)
-        trainer.save_metrics("train", metrics)
-        trainer.save_state()
+    total_batch_size = training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps
 
-    # Evaluation
-    results = {}
-    if training_args.do_eval:
-        logger.info("*** Evaluate ***")
+    logger.info("***** Running training *****")
+    logger.info(f"  Num examples = {len(train_dataset_generate)}")
+    logger.info(f"  Num Epochs = {training_args.num_train_epochs}")
+    logger.info(f"  Instantaneous batch size per device = {training_args.per_device_train_batch_size}")
+    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(f"  Gradient Accumulation steps = {training_args.gradient_accumulation_steps}")
+    logger.info(f"  Total optimization steps = {training_args.max_train_steps}")
+    # Only show the progress bar once on each machine.
+    progress_bar = tqdm(range(training_args.max_train_steps))
+    completed_steps = 0
+    starting_epoch = 0
 
-        metrics = trainer.evaluate()
-        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
-        metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
+    for epoch in range(starting_epoch, training_args.num_train_epochs):
+        model.train()
+        if training_args.with_tracking:
+            total_loss = 0
+        dataloader_classify_iterator = iter(train_dataloader_classify)
+        for step, batch in enumerate(train_dataloader_generate):
+            outputs = model(**batch)
+            loss = outputs.loss
+            if training_args.with_tracking:
+                total_loss += loss.detach().float()
+            loss = loss / training_args.gradient_accumulation_steps
+            loss.backward()
+            if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_generate) - 1:
+                optimizer_generate.step()
+                lr_scheduler_generate.step()
+                optimizer_generate.zero_grad()
+                progress_bar.update(1)
+                completed_steps += 1
 
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
+            model.eval()
+            classification_model.train()
 
-    if training_args.do_predict:
-        logger.info("*** Predict ***")
+            batch_classify = next(dataloader_classify_iterator)
+            encoder_outputs = model.encoder(
+                input_ids=batch_classify['input_ids'],
+                attention_mask=batch_classify['attention_mask']
+            )
 
-        predict_results = trainer.predict(
-            predict_dataset,
-            metric_key_prefix="predict",
-        )
-        metrics = predict_results.metrics
-        max_predict_samples = (
-            data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
-        )
-        metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset))
+            hidden_states = encoder_outputs[0]
+            hidden_states = (torch.mean(hidden_states, dim=1)).squeeze()
+            outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
+            loss = outputs.loss
+            if training_args.with_tracking:
+                total_loss += loss.detach().float()
+            loss = loss / training_args.gradient_accumulation_steps
+            loss.backward()
+            if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
+                optimizer_classify.step()
+                lr_scheduler_classify.step()
+                optimizer_classify.zero_grad()
 
-        trainer.log_metrics("predict", metrics)
-        trainer.save_metrics("predict", metrics)
-
-        if trainer.is_world_process_zero():
-            if training_args.predict_with_generate:
-                predictions = tokenizer.batch_decode(
-                    predict_results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
-                )
-                predictions = [pred.strip() for pred in predictions]
-                output_prediction_file = os.path.join(training_args.output_dir, "generated_predictions.txt")
-                with open(output_prediction_file, "w", encoding="utf-8") as writer:
-                    writer.write("\n".join(predictions))
-
-    return results
-
+    return
 
 if __name__ == "__main__":
     main()
