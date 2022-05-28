@@ -92,7 +92,6 @@ def preprocess_function_generate(examples, tokenizer, data_args):
     # Setup the tokenizer for targets
     with tokenizer.as_target_tokenizer():
         labels = tokenizer(targets, max_length=max_target_length, padding=padding, truncation=True)
-#    print(labels)
     # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
     # padding in the loss.
     if padding == "max_length" and data_args.ignore_pad_token_for_loss:
@@ -126,28 +125,20 @@ def create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='trai
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
         train_dataset = raw_datasets["train"]
-        if data_args.max_train_samples is not None:
-            train_dataset = train_dataset.select(range(data_args.max_train_samples))
         with training_args.main_process_first(desc="train dataset map pre-processing"):
             train_dataset = preprocess_function_generate(train_dataset, tokenizer, data_args)
         return train_dataset
     elif mode=='validation':
-        max_target_length = data_args.val_max_target_length
         if "validation" not in raw_datasets:
             raise ValueError("--do_eval requires a validation dataset")
         eval_dataset = raw_datasets["validation"]
-        if data_args.max_eval_samples is not None:
-            eval_dataset = eval_dataset.select(range(data_args.max_eval_samples))
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
             eval_dataset = preprocess_function_generate(eval_dataset, tokenizer, data_args)
         return eval_dataset
     elif mode=='test':
-        max_target_length = data_args.val_max_target_length
         if "test" not in raw_datasets:
             raise ValueError("--do_predict requires a test dataset")
         predict_dataset = raw_datasets["test"]
-        if data_args.max_predict_samples is not None:
-            predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
         with training_args.main_process_first(desc="prediction dataset map pre-processing"):
             predict_dataset = preprocess_function_generate(predict_dataset, tokenizer, data_args)
         return predict_dataset
@@ -158,28 +149,20 @@ def create_dataset_classify(raw_datasets, data_args, training_args, tokenizer, m
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
         train_dataset = raw_datasets["train"]
-        if data_args.max_train_classify_samples is not None:
-            train_dataset = train_dataset.select(range(data_args.max_train_classify_samples))
         with training_args.main_process_first(desc="train dataset map pre-processing"):
             train_dataset = preprocess_function_classify(train_dataset, tokenizer, data_args)
         return train_dataset
     elif mode=='validation':
-        max_target_length = data_args.val_max_target_length
         if "validation" not in raw_datasets:
             raise ValueError("--do_eval requires a validation dataset")
         eval_dataset = raw_datasets["validation"]
-        if data_args.max_eval_classify_samples is not None:
-            eval_dataset = eval_dataset.select(range(data_args.max_eval_classify_samples))
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
             eval_dataset = preprocess_function_classify(eval_dataset, tokenizer, data_args)
         return eval_dataset
     elif mode=='test':
-        max_target_length = data_args.val_max_target_length
         if "test" not in raw_datasets:
             raise ValueError("--do_predict requires a test dataset")
         predict_dataset = raw_datasets["test"]
-        if data_args.max_predict_classify_samples is not None:
-            predict_dataset = predict_dataset.select(range(data_args.max_predict_classify_samples))
         with training_args.main_process_first(desc="prediction dataset map pre-processing"):
             predict_dataset = preprocess_function_classify(predict_dataset, tokenizer, data_args)
         return predict_dataset
