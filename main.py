@@ -368,17 +368,7 @@ def main():
     ]
     optimizer_generate = AdamW(optimizer_grouped_parameters, lr=training_args.learning_rate)
 
-    optimizer_grouped_parameters_classify = [
-        {
-            "params": [p for n, p in classification_model.named_parameters() if not any(nd in n for nd in no_decay)],
-            "weight_decay": training_args.weight_decay,
-        },
-        {
-            "params": [p for n, p in classification_model.named_parameters() if any(nd in n for nd in no_decay)],
-            "weight_decay": 0.0,
-        },
-    ]
-    optimizer_classify = AdamW(optimizer_grouped_parameters_classify, lr=training_args.learning_rate)
+    optimizer_classify = AdamW([p for _, p in classification_model.named_parameters()], lr=training_args.learning_rate)
 
     num_update_steps_per_epoch = math.ceil(len(train_dataloader_generate) / training_args.gradient_accumulation_steps)
     training_args.max_train_steps = training_args.num_train_epochs * num_update_steps_per_epoch
@@ -386,13 +376,6 @@ def main():
     lr_scheduler_generate = get_scheduler(
         name=training_args.lr_scheduler_type,
         optimizer=optimizer_generate,
-        num_warmup_steps=training_args.num_warmup_steps,
-        num_training_steps=training_args.max_train_steps,
-    )
-
-    lr_scheduler_classify = get_scheduler(
-        name=training_args.lr_scheduler_type,
-        optimizer=optimizer_classify,
         num_warmup_steps=training_args.num_warmup_steps,
         num_training_steps=training_args.max_train_steps,
     )
@@ -416,16 +399,19 @@ def main():
     completed_steps = 0
     starting_epoch = 0
 
+    criterion = nn.BCEWithLogitsLoss()
+
     for epoch in range(starting_epoch, training_args.num_train_epochs):
         model.train()
         if training_args.with_tracking:
-            total_loss = 0
+            total_loss_generate = 0
+            total_loss_classify = 0
         dataloader_classify_iterator = iter(train_dataloader_classify)
         for step, batch in enumerate(train_dataloader_generate):
             outputs = model(**batch)
             loss = outputs.loss
             if training_args.with_tracking:
-                total_loss += loss.detach().float()
+                total_loss_generate += loss.detach().float()
             loss = loss / training_args.gradient_accumulation_steps
             loss.backward()
             if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_generate) - 1:
@@ -438,24 +424,26 @@ def main():
             model.eval()
             classification_model.train()
 
-            batch_classify = next(dataloader_classify_iterator)
-            encoder_outputs = model.encoder(
-                input_ids=batch_classify['input_ids'],
-                attention_mask=batch_classify['attention_mask']
-            )
+            with torch.no_grad():
+                batch_classify = next(dataloader_classify_iterator)
+                encoder_outputs = model.encoder(
+                    input_ids=batch_classify['input_ids'],
+                    attention_mask=batch_classify['attention_mask']
+                )
 
-            hidden_states = encoder_outputs[0]
-            hidden_states = (torch.mean(hidden_states, dim=1)).squeeze()
+                hidden_states = encoder_outputs[0]
+                hidden_states = (torch.mean(hidden_states, dim=1)).squeeze()
             outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
-            loss = outputs.loss
+            loss = criterion(outputs, batch_classify["attr_labels"])
             if training_args.with_tracking:
-                total_loss += loss.detach().float()
+                total_loss_classify += loss.detach().float()
             loss = loss / training_args.gradient_accumulation_steps
             loss.backward()
             if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
                 optimizer_classify.step()
-                lr_scheduler_classify.step()
                 optimizer_classify.zero_grad()
+            
+            classification_model.eval()
 
     return
 
