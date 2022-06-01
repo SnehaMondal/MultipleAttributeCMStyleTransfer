@@ -27,6 +27,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from dataclasses import dataclass, field
 from typing import Optional, List
+import pprint
 
 import datasets
 
@@ -46,6 +47,10 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 from transformers.trainer_pt_utils import get_parameter_names
+
+from accelerate import Accelerator
+from accelerate.logging import get_logger
+from accelerate.utils import set_seed
 
 import prepare_dataset as pd
 import metrics as mt
@@ -267,6 +272,7 @@ def main():
     log_file = model_name+'.log'
     log_fh = logging.FileHandler(log_file)
     # Setup logging
+    accelerator = Accelerator(log_with="all", logging_dir=training_args.output_dir) if model_args.with_tracking else Accelerator()
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
@@ -339,7 +345,6 @@ def main():
         )
 
     raw_datasets_generate, raw_datasets_classify = pd.load_data(data_args, model_args)
-    # print(raw_datasets["train"])
 
     if training_args.do_train:
         train_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer)
@@ -351,8 +356,7 @@ def main():
 
     if training_args.do_predict:
         predict_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='test')
-        predict_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='test')
-
+    
     # Data collator
     data_collator_generate = pd.create_collator_generate(data_args, training_args, tokenizer, model)
     data_collator_classify = pd.create_collator_classify(tokenizer, training_args)
@@ -381,25 +385,36 @@ def main():
         },
     ]
     optimizer_generate = Adafactor(optimizer_grouped_parameters, lr=training_args.learning_rate, scale_parameter=False, relative_step=False)
-
     optimizer_classify = AdamW([p for _, p in classification_model.named_parameters()], lr=training_args.learning_rate)
 
     num_update_steps_per_epoch = math.ceil(len(train_dataloader_generate) / training_args.gradient_accumulation_steps)
     training_args.max_train_steps = int(training_args.num_train_epochs * num_update_steps_per_epoch)
-
     lr_scheduler_generate = get_scheduler(
         name=training_args.lr_scheduler_type,
         optimizer=optimizer_generate,
         num_warmup_steps=training_args.warmup_steps,
         num_training_steps=training_args.max_train_steps,
     )
+    criterion = nn.BCEWithLogitsLoss()
+
+    model, optimizer_generate, train_dataloader_generate, eval_dataloader_generate, lr_scheduler_generate = accelerator.prepare(
+        model, optimizer_generate, train_dataloader_generate, eval_dataloader_generate, lr_scheduler_generate
+    )
+
+    classification_model, optimizer_classify, train_dataloader_classify, eval_dataloader_classify, criterion = accelerator.prepare(
+        classification_model, optimizer_classify, train_dataloader_classify, eval_dataloader_classify, criterion
+    )
+    # Repeat, not sure why.
+    num_update_steps_per_epoch = math.ceil(len(train_dataloader_generate) / training_args.gradient_accumulation_steps)
+    training_args.max_train_steps = int(training_args.num_train_epochs * num_update_steps_per_epoch)
 
     if model_args.with_tracking:
         experiment_config = vars(training_args)
-        # TensorBoard cannot log Enums, need the raw value
-        experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
+        experiment_config["lr_scheduler_type"] = str(experiment_config["lr_scheduler_type"].value)
+        experiment_config = {k:v for k, v in experiment_config.items() if isinstance(v, (float, str, int, bool))}
+        accelerator.init_trackers("generate_with_classify", experiment_config)
 
-    total_batch_size = training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps
+    total_batch_size = training_args.per_device_train_batch_size * accelerator.num_processes * training_args.gradient_accumulation_steps
 
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset_generate)}")
@@ -408,12 +423,12 @@ def main():
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {training_args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {training_args.max_train_steps}")
-    # Only show the progress bar once on each machine.
+
+
     progress_bar = tqdm(range(training_args.max_train_steps))
     completed_steps = 0
     starting_epoch = 0
 
-    criterion = nn.BCEWithLogitsLoss()
     metric_for_best_model = 'eval_'+training_args.metric_for_best_model
     best_checkpoint_so_far = None
     best_metric_so_far = -1
@@ -431,7 +446,7 @@ def main():
             if model_args.with_tracking:
                 total_loss_generate += loss.detach().float()
             loss = loss / training_args.gradient_accumulation_steps
-            loss.backward()
+            accelerator.backward(loss)
             if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_generate) - 1:
                 optimizer_generate.step()
                 lr_scheduler_generate.step()
@@ -461,20 +476,29 @@ def main():
             if model_args.with_tracking:
                 total_loss_classify += loss.detach().float()
             loss = loss / training_args.gradient_accumulation_steps
-            loss.backward()
+            accelerator.backward(loss)
             if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
                 optimizer_classify.step()
                 optimizer_classify.zero_grad()
 
 
-            #checkpointing and evaluation
+            #checkpointing, logging and evaluation
             if (completed_steps % training_args.eval_steps == 0):
+                #log training loss
+                if model_args.with_tracking:
+                    result = dict()
+                    result["train_loss_generate"] = total_loss_generate
+                    result["train_loss_classify"] = total_loss_classify
+                    result["epoch"] = epoch
+                    result["step"] = completed_steps
+                    accelerator.log(result)
+
                 # save checkpoint
                 output_dir = f"checkpoint-{completed_steps}"
                 logger.info(f"Saving checkpoint to {output_dir}")
                 if training_args.output_dir is not None:
                     output_dir = os.path.join(training_args.output_dir, output_dir)
-                model.save_pretrained(output_dir, state_dict=model.state_dict())
+                    model.save_pretrained(output_dir, state_dict=model.state_dict())
 
                 #evaluate model
                 trainer = CustomSeq2SeqTrainer(
@@ -483,7 +507,7 @@ def main():
                             eval_dataset=eval_dataset_generate,
                             tokenizer=tokenizer,
                             data_collator=data_collator_generate,
-                            compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args),
+                            compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args)
                         )
                 logger.info(f"*** Evaluate ***")
                 metrics = trainer.evaluate()
@@ -497,12 +521,12 @@ def main():
                 if metrics[metric_for_best_model] > best_metric_so_far:
                     best_metric_so_far = metrics[metric_for_best_model]
                     best_checkpoint_so_far = completed_steps
-                logger.info(f"Best checkpoint so far : checkpoint-{completed_steps}")
+                logger.info(f"Best checkpoint so far : checkpoint-{best_checkpoint_so_far}")
 
 
     logger.info("Training complete")
     best_model_dir = os.path.join(training_args.output_dir, f"checkpoint-{best_checkpoint_so_far}")
-    model = MT5ForStyleConditionalGeneration.from_pretrained(best_model_dir)
+    model = MT5ForStyleConditionalGeneration.from_pretrained(best_model_dir, num_attr=data_args.num_attr)
     trainer = CustomSeq2SeqTrainer(
                         model=model,
                         args=training_args,
@@ -524,6 +548,15 @@ def main():
     metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset_generate))
     trainer.log_metrics("predict", metrics)
     trainer.save_metrics("predict", metrics)
+
+    if training_args.predict_with_generate:
+        predictions = tokenizer.batch_decode(
+            predict_results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
+        )
+        predictions = [pred.strip() for pred in predictions]
+        output_prediction_file = os.path.join(training_args.output_dir, "generated_predictions.txt")
+        with open(output_prediction_file, "w", encoding="utf-8") as writer:
+            writer.write("\n".join(predictions))
 
     return
 
