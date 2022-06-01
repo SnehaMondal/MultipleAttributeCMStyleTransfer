@@ -247,12 +247,6 @@ class DataTrainingArguments:
         },
     )
 
-    #attr_names: List = field(
-     #   default_factory=lambda: ['cmi'],
-    #  metadata={
-     #       "help": "Column names of the attributes to control for"
-      #  },
-  #  )
 
     def __post_init__(self):
         if self.train_file is None and self.validation_file is None:
@@ -420,6 +414,9 @@ def main():
     starting_epoch = 0
 
     criterion = nn.BCEWithLogitsLoss()
+    metric_for_best_model = 'eval_'+training_args.metric_for_best_model
+    best_checkpoint_so_far = None
+    best_metric_so_far = -1
 
     for epoch in range(starting_epoch, int(training_args.num_train_epochs)):
         model.train()
@@ -428,6 +425,7 @@ def main():
             total_loss_classify = 0
         
         for step, batch in enumerate(train_dataloader_generate):
+            model.train()
             outputs = model(**batch)
             loss = outputs.loss
             if model_args.with_tracking:
@@ -441,9 +439,9 @@ def main():
                 progress_bar.update(1)
                 completed_steps += 1
 
-            model.eval()
+            # set model to eval mode before getting encoder embeddings
             classification_model.train()
-
+            model.eval()
             try:
                 batch_classify = next(dataloader_classify_iterator)
             except:
@@ -456,7 +454,6 @@ def main():
                     return_dict=True
                 )
                 hidden_states = encoder_outputs.last_hidden_state
-                # pooling over sentence tokens only (indicated by attention mask)
                 hidden_states = torch.mean(hidden_states * batch_classify["attention_mask"].unsqueeze(-1), axis=1).squeeze()
             
             outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
@@ -469,12 +466,64 @@ def main():
                 optimizer_classify.step()
                 optimizer_classify.zero_grad()
 
-            if step%10==0 and model_args.with_tracking:
-                print(step)
-                print(total_loss_generate/(step+1))
-                print(total_loss_classify/(step+1))
-            
-            classification_model.eval()
+
+            #checkpointing and evaluation
+            if (completed_steps % training_args.eval_steps == 0):
+                # save checkpoint
+                output_dir = f"checkpoint-{completed_steps}"
+                logger.info(f"Saving checkpoint to {output_dir}")
+                if training_args.output_dir is not None:
+                    output_dir = os.path.join(training_args.output_dir, output_dir)
+                model.save_pretrained(output_dir, state_dict=model.state_dict())
+
+                #evaluate model
+                trainer = CustomSeq2SeqTrainer(
+                            model=model,
+                            args=training_args,
+                            eval_dataset=eval_dataset_generate,
+                            tokenizer=tokenizer,
+                            data_collator=data_collator_generate,
+                            compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args),
+                        )
+                logger.info(f"*** Evaluate ***")
+                metrics = trainer.evaluate()
+                max_eval_samples = len(eval_dataset_generate)
+                metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset_generate))
+
+                trainer.log_metrics("eval", metrics)
+                trainer.save_metrics("eval", metrics)
+
+                #keep track of best model so far, assume greater is better. Will not work for loss.
+                if metrics[metric_for_best_model] > best_metric_so_far:
+                    best_metric_so_far = metrics[metric_for_best_model]
+                    best_checkpoint_so_far = completed_steps
+                logger.info(f"Best checkpoint so far : checkpoint-{completed_steps}")
+
+
+    logger.info("Training complete")
+    best_model_dir = os.path.join(training_args.output_dir, f"checkpoint-{best_checkpoint_so_far}")
+    model = MT5ForStyleConditionalGeneration.from_pretrained(best_model_dir)
+    trainer = CustomSeq2SeqTrainer(
+                        model=model,
+                        args=training_args,
+                        eval_dataset=eval_dataset_generate,
+                        tokenizer=tokenizer,
+                        data_collator=data_collator_generate,
+                        compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args),
+                        )
+    logger.info(f"*** Predict ***")
+    predict_results = trainer.predict(
+        predict_dataset_generate,
+        metric_key_prefix="predict",
+        max_length=data_args.max_target_length,
+        num_beams=data_args.num_beams,
+        )
+    metrics = predict_results.metrics
+    max_predict_samples = len(predict_dataset_generate)
+
+    metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset_generate))
+    trainer.log_metrics("predict", metrics)
+    trainer.save_metrics("predict", metrics)
 
     return
 
