@@ -39,6 +39,7 @@ from transformers import (
     set_seed,
     SchedulerType,
     get_scheduler,
+    get_parameter_names
 )
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
@@ -355,18 +356,19 @@ def main():
     )
     eval_dataloader_classify = DataLoader(eval_dataset_classify, collate_fn=data_collator, batch_size=training_args.per_device_eval_batch_size)
 
-    no_decay = ["bias", "LayerNorm.weight"]
+    decay_parameters = get_parameter_names(model, [nn.LayerNorm])
+    decay_parameters = [name for name in decay_parameters if "bias" not in name]
     optimizer_grouped_parameters = [
         {
-            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "params": [p for n, p in model.named_parameters() if n in decay_parameters],
             "weight_decay": training_args.weight_decay,
         },
         {
-            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "params": [p for n, p in model.named_parameters() if n not in decay_parameters],
             "weight_decay": 0.0,
         },
     ]
-    optimizer_generate = AdamW(optimizer_grouped_parameters, lr=training_args.learning_rate)
+    optimizer_generate = Adafactor(optimizer_grouped_parameters, lr=training_args.learning_rate, "scale_parameter": False, "relative_step": False)
 
     optimizer_classify = AdamW([p for _, p in classification_model.named_parameters()], lr=training_args.learning_rate)
 
