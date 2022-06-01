@@ -26,9 +26,9 @@ with open(fn1, 'r') as f:
         val1 = 0
         val1 = cmi(src)
         true_bucket = get_cmi_bucket_tag(src)
-        of.write("\t".join([src, val1, "1"]))
+        of.write("\t".join([src, str(val1), "1"]))
         for x in buckets:
             if x!=true_bucket:
                 fake_cmi = get_random_cmi(x)
-                of.write("\t".join([src, fake_cmi, "0"]))
+                of.write("\t".join([src, str(fake_cmi), "0"]))
 
