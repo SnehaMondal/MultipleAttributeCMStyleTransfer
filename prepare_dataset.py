@@ -1,6 +1,6 @@
 import datasets
 from datasets import load_dataset
-from transformers import default_data_collator, DataCollatorForSeq2Seq
+from transformers import default_data_collator, DataCollatorForSeq2Seq, DataCollatorWithPadding
 import torch
 
 prefix = "to_cm "
@@ -35,7 +35,7 @@ def load_data(data_args, model_args):
         data_files_classify["test"] = data_args.test_file_classify
     raw_datasets_classify = load_dataset('csv', data_files=data_files_classify, delimiter = '\t',
                                 cache_dir=model_args.cache_dir,
-                                column_names=[data_args.source_lang]+data_args.attr_names+'attr_truth')
+                                column_names=[data_args.source_lang] + data_args.attr_names + ['label'])
     return raw_datasets_generate, raw_datasets_classify
 
 class CustomDatasetGenerate(torch.utils.data.Dataset):
@@ -60,7 +60,7 @@ class CustomDatasetClassify(torch.utils.data.Dataset):
     def __init__(self, inputs):
         self.inputs = inputs['input_ids']
         self.attention = inputs['attention_mask']
-        self.attr = inputs['attr_truth']
+        self.attr = inputs['label']
         self.style = inputs["input_style_scores"]
     
     def __len__(self):
@@ -72,7 +72,7 @@ class CustomDatasetClassify(torch.utils.data.Dataset):
         attr_labels = (self.attr[index]).squeeze()
         style_scores = self.style[index]
         
-        return {"input_ids": input_ids, "attention_mask":attention_mask, "attr_labels":attr_labels, "input_style_scores":style_scores}
+        return {"input_ids": input_ids, "attention_mask":attention_mask, "label":attr_labels, "input_style_scores":style_scores}
 
 def preprocess_function_generate(examples, tokenizer, data_args):
     # Temporarily set max_target_length for training.
@@ -109,11 +109,11 @@ def preprocess_function_classify(examples, tokenizer, data_args):
 
     ### todo: what is the format of examples? fix accordingly
     inputs = [str(source) for source in examples[data_args.source_lang]]
-    attr_truth = [int(x) for x in examples['attr_truth']]
+    labels = [int(x) for x in examples['labels']]
 
     model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
 
-    model_inputs["attr_truth"] = torch.tensor(attr_truth, dtype=torch.int32)  
+    model_inputs["label"] = torch.tensor(labels, dtype=torch.int32)  
     model_inputs["input_style_scores"] = torch.tensor(style_scores, dtype=torch.float32)
     model_inputs["input_style_scores"] = torch.transpose(model_inputs["input_style_scores"], 0, 1)
     return CustomDatasetClassify(model_inputs)
@@ -183,7 +183,7 @@ def create_dataset_classify(raw_datasets, data_args, training_args, tokenizer, m
     else: raise ValueError("wrong mode for create_dataset function")
 
 
-def create_collator(data_args, training_args, tokenizer, model):
+def create_collator_generate(data_args, training_args, tokenizer, model):
     label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else tokenizer.pad_token_id
     if data_args.pad_to_max_length:
         data_collator = default_data_collator
@@ -195,3 +195,8 @@ def create_collator(data_args, training_args, tokenizer, model):
             pad_to_multiple_of=8 if training_args.fp16 else None,
         )
     return data_collator
+
+
+def create_collator_classify(tokenizer):
+        return DataCollatorWithPadding(tokenizer,
+            pad_to_multiple_of=8 if training_args.fp16 else None)
