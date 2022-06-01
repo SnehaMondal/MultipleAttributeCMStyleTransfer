@@ -23,6 +23,7 @@ import os
 import sys
 import math
 import torch
+import torch.nn as nn
 from tqdm import tqdm
 from dataclasses import dataclass, field
 from typing import Optional, List
@@ -35,15 +36,16 @@ from transformers import (
     HfArgumentParser,
     Seq2SeqTrainer,
     AdamW,
+    Adafactor,
     Seq2SeqTrainingArguments,
     set_seed,
     SchedulerType,
-    get_scheduler,
-    get_parameter_names
+    get_scheduler
 )
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
+from transformers.trainer_pt_utils import get_parameter_names
 
 import prepare_dataset as pd
 import metrics as mt
@@ -85,6 +87,9 @@ class ModelArguments:
             "with private models)."
         },
     )
+    with_tracking: bool = field(
+        default=False,
+    )
 
 
 @dataclass
@@ -106,6 +111,23 @@ class DataTrainingArguments:
         },
     )
     test_file: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "An optional input test data file to evaluate the metrics (sacreblue) on " "a jsonlines file."
+        },
+    )
+    train_file_classify: Optional[str] = field(
+        default=None,
+        metadata={"help": "The input training data file (a jsonlines)."
+        })
+    validation_file_classify: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "An optional input evaluation data file to evaluate the metrics (sacreblue) on "
+            "a jsonlines file."
+        },
+    )
+    test_file_classify: Optional[str] = field(
         default=None,
         metadata={
             "help": "An optional input test data file to evaluate the metrics (sacreblue) on " "a jsonlines file."
@@ -339,7 +361,7 @@ def main():
 
     # Data collator
     data_collator_generate = pd.create_collator_generate(data_args, training_args, tokenizer, model)
-    data_collator_classify = pd.create_collator_classify(tokenizer)
+    data_collator_classify = pd.create_collator_classify(tokenizer, training_args)
 
 
     train_dataloader_generate = DataLoader(
@@ -364,21 +386,21 @@ def main():
             "weight_decay": 0.0,
         },
     ]
-    optimizer_generate = Adafactor(optimizer_grouped_parameters, lr=training_args.learning_rate, "scale_parameter": False, "relative_step": False)
+    optimizer_generate = Adafactor(optimizer_grouped_parameters, lr=training_args.learning_rate, scale_parameter=False, relative_step=False)
 
     optimizer_classify = AdamW([p for _, p in classification_model.named_parameters()], lr=training_args.learning_rate)
 
     num_update_steps_per_epoch = math.ceil(len(train_dataloader_generate) / training_args.gradient_accumulation_steps)
-    training_args.max_train_steps = training_args.num_train_epochs * num_update_steps_per_epoch
+    training_args.max_train_steps = int(training_args.num_train_epochs * num_update_steps_per_epoch)
 
     lr_scheduler_generate = get_scheduler(
         name=training_args.lr_scheduler_type,
         optimizer=optimizer_generate,
-        num_warmup_steps=training_args.num_warmup_steps,
+        num_warmup_steps=training_args.warmup_steps,
         num_training_steps=training_args.max_train_steps,
     )
 
-    if training_args.with_tracking:
+    if model_args.with_tracking:
         experiment_config = vars(training_args)
         # TensorBoard cannot log Enums, need the raw value
         experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
@@ -399,16 +421,16 @@ def main():
 
     criterion = nn.BCEWithLogitsLoss()
 
-    for epoch in range(starting_epoch, training_args.num_train_epochs):
+    for epoch in range(starting_epoch, int(training_args.num_train_epochs)):
         model.train()
-        if training_args.with_tracking:
+        if model_args.with_tracking:
             total_loss_generate = 0
             total_loss_classify = 0
         
         for step, batch in enumerate(train_dataloader_generate):
             outputs = model(**batch)
             loss = outputs.loss
-            if training_args.with_tracking:
+            if model_args.with_tracking:
                 total_loss_generate += loss.detach().float()
             loss = loss / training_args.gradient_accumulation_steps
             loss.backward()
@@ -436,16 +458,21 @@ def main():
                 hidden_states = encoder_outputs.last_hidden_state
                 # pooling over sentence tokens only (indicated by attention mask)
                 hidden_states = torch.mean(hidden_states * batch_classify["attention_mask"].unsqueeze(-1), axis=1).squeeze()
-
+            
             outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
-            loss = criterion(outputs, batch_classify["attr_labels"])
-            if training_args.with_tracking:
+            loss = criterion(outputs.squeeze(), batch_classify["labels"])
+            if model_args.with_tracking:
                 total_loss_classify += loss.detach().float()
             loss = loss / training_args.gradient_accumulation_steps
             loss.backward()
             if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
                 optimizer_classify.step()
                 optimizer_classify.zero_grad()
+
+            if step%10==0 and model_args.with_tracking:
+                print(step)
+                print(total_loss_generate/(step+1))
+                print(total_loss_classify/(step+1))
             
             classification_model.eval()
 
