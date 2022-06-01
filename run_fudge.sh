@@ -6,12 +6,27 @@
 # --path_to_predictor='xlm-roberta-base' \
 # --reference_index=2
 
-python run_fudge.py \
+# python run_fudge.py \
+# --input_filename='./data/fudge/unique_test.tsv' \
+# --output_directory='./results/fudge/base_predictor' \
+# --path_to_cmgen_model='./models/few_shot/base' \
+# --path_to_predictor='./models/formality_classifiers/train_hi_dev_cs/checkpoint-800' \
+# --beam_width=4
+
+# python run_fudge.py \
+# --input_filename='./data/fudge/unique_test.tsv' \
+# --output_directory='./results/fudge/train_cs_dev_cs' \
+# --path_to_cmgen_model='./models/few_shot/base' \
+# --path_to_predictor='./models/formality_classifiers/train_cs_dev_cs/checkpoint-600' \
+# --beam_width=4
+
+python run_fudge_with_cmi_control.py \
 --input_filename='./data/cmi_control_test_vector_oracle.tsv' \
---output_directory='./results/fudge/translation_pretrained_ft_cmi_vector' \
---path_to_cmgen_model='./models/translation_pretrained_ft_cmi_vector/checkpoint-41000' \
---path_to_predictor='xlm-roberta-base' \
+--output_directory='./results/fudge/train_hi_dev_cs/cmi_control' \
+--path_to_cmgen_model='./models/mt5_hd_ft_cmi_vector/checkpoint-70000' \
+--path_to_predictor='./models/formality_classifiers/train_hi_dev_cs/checkpoint-800' \
 --beam_width=4
+
 
 # python ./code/run_fudge.py \
 # --input_filename='./data/en_hi_parallel/ct_data/test_data/tagremoved_creatives_test_data.tsv-00000-of-00001' \

@@ -2,7 +2,7 @@ import time
 import torch
 import os
 
-from transformers import T5Tokenizer, T5Config, AutoTokenizer, XLMRobertaModelWithHeads, BeamSearchScorer, StoppingCriteriaList, MaxLengthCriteria, LogitsProcessorList, AdapterConfig
+from transformers import MT5ForConditionalGeneration, T5Tokenizer, T5Config, AutoTokenizer, XLMRobertaModelWithHeads, BeamSearchScorer, StoppingCriteriaList, MaxLengthCriteria, LogitsProcessorList, AdapterConfig
 import numpy as np
 from datasets import load_metric
 from torch import nn
@@ -11,8 +11,10 @@ import argparse
 import time
 import pprint
 
-from model import MT5ForStyleConditionalGeneration
+# from model import MT5ForStyleConditionalGeneration
 import metrics as mt
+
+effective_vocab_size = 200
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_filename', type=str, required=True)
@@ -20,11 +22,18 @@ parser.add_argument('--output_directory', type=str, required=True)
 parser.add_argument('--path_to_cmgen_model', type=str, required=True)
 parser.add_argument('--path_to_predictor', type=str, required=True)
 parser.add_argument('--beam_width', type=int, required=True)
+parser.add_argument('--make_formal', dest='make_formal', default=False, action='store_true')
 args = parser.parse_args()
 
 print(args.input_filename)
 print(args.output_directory)
 print(args.path_to_predictor)
+
+if (args.make_formal):
+	logit_index = 1
+else:
+	logit_index = 0
+print(f"Will use logit index : {logit_index}")
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -33,30 +42,37 @@ metric = load_metric("sacrebleu")
 
 #load codemixed generation model
 t5_tokenizer = T5Tokenizer.from_pretrained(args.path_to_cmgen_model)
-model = MT5ForStyleConditionalGeneration.from_pretrained(args.path_to_cmgen_model, return_dict=True).to(device)
+model = MT5ForConditionalGeneration.from_pretrained(args.path_to_cmgen_model, return_dict=True).to(device)
 model.eval()
-print("Loaded codemixed generation model")
+print(f"Loaded codemixed generation model from {args.path_to_cmgen_model}")
+# print(f"Max length : {model.config.max_leng}")
 
 #load predictor model
 xlm_tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
-conditioning_model = XLMRobertaModelWithHeads.from_pretrained(args.path_to_predictor)
 
-if args.path_to_predictor == 'xlm-roberta-base':
-	lang_adapter_config = AdapterConfig.load("pfeiffer", reduction_factor=2)
-	conditioning_model.load_adapter("hi/wiki@ukp", config=lang_adapter_config)
-	config = AdapterConfig.load("pfeiffer", non_linearity="relu", reduction_factor=16)
-	conditioning_model.load_adapter("/home/snehamondal/fudge-controlled-generation-creative/xlm-roberta-base_formality_classify_gyafc_pfeiffer", config=config)
+conditioning_model = XLMRobertaModelWithHeads.from_pretrained("xlm-roberta-base")
 
-conditioning_model.active_adapters = Stack("hi", "gyafc")
-conditioning_model.to(device)
+# conditioning_model.load_adapter(f"{args.path_to_predictor}/hi", load_as='hi')
+# conditioning_model.load_adapter(f"{args.path_to_predictor}/gyafc", load_as='gyafc')
+# conditioning_model.set_active_adapters(Stack("hi", "gyafc"))
+
+lang_adapter_config = AdapterConfig.load("pfeiffer", reduction_factor=2)
+conditioning_model.load_adapter("en/wiki@ukp", config=lang_adapter_config)
+
+gyafc_config = AdapterConfig.load(
+    "pfeiffer", non_linearity="relu", reduction_factor=16)
+conditioning_model.load_adapter(
+    "../fudge-controlled-generation-creative/xlm-roberta-base_formality_classify_gyafc_pfeiffer", config=gyafc_config)
+conditioning_model.set_active_adapters(Stack("en", "gyafc"))
+
 conditioning_model.eval()
-print(f"Loaded prediction model from {conditioning_model.config._name_or_path}")
+conditioning_model.cuda()
 
 def fudge_beam_search(
 	input_ids,
 	beam_scorer,
 	condition_lambda,
-	input_cmi_scores=None,
+	# input_cmi_scores=None,
 	logits_processor = None,
 	stopping_criteria = None,
 	max_length = None,
@@ -78,7 +94,6 @@ def fudge_beam_search(
 	output_hidden_states = (model.config.output_hidden_states)
 	return_dict_in_generate = (model.config.return_dict_in_generate)
 
-	effective_vocab_size = 1000
 	batch_size = len(beam_scorer._beam_hyps)
 	num_beams = beam_scorer.num_beams
 
@@ -104,7 +119,8 @@ def fudge_beam_search(
 	this_peer_finished = False  # used by synced_gpus only
 	while True:
 
-		model_inputs = model.prepare_inputs_for_generation(input_ids=input_ids, input_cmi_scores=input_cmi_scores, **model_kwargs)
+		# model_inputs = model.prepare_inputs_for_generation(input_ids=input_ids, input_cmi_scores=input_cmi_scores, **model_kwargs)
+		model_inputs = model.prepare_inputs_for_generation(input_ids=input_ids, **model_kwargs)
 
 		outputs = model(
 			**model_inputs,
@@ -138,13 +154,13 @@ def fudge_beam_search(
 					curr_batch = xlm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt")
 					for k, v in curr_batch.items():
 						curr_batch[k] = v.to(device)
-					condition_logits += conditioning_model(**curr_batch).logits[:, 0]
+					condition_logits += conditioning_model(**curr_batch).logits[:, logit_index]
 					batch = [prefix]
 			if len(batch) > 0:
 				curr_batch = xlm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt")
 				for k, v in curr_batch.items():
 					curr_batch[k] = v.to(device)
-				condition_logits += conditioning_model(**curr_batch).logits[:, 1]
+				condition_logits += conditioning_model(**curr_batch).logits[:, logit_index]
 			condition_logits = torch.stack(condition_logits, dim=0).view(num_beams, effective_vocab_size)
 
 		full_logits = top_logits + condition_lambda * condition_logits
@@ -211,40 +227,44 @@ def fudge_beam_search(
 	)
 	return sequence_outputs["sequences"]
 
-def beam_search(sentence, cmi_score, condition_lambda, num_beams):
+def beam_search(sentence,
+				# cmi_score,
+				condition_lambda, num_beams):
 	with torch.no_grad():        
 		encoder_input_ids = t5_tokenizer([sentence], return_tensors="pt").input_ids.to(device)
 		input_ids = torch.ones((num_beams, 1), device=model.device, dtype=torch.long)
 		input_ids = input_ids * model.config.decoder_start_token_id
-		input_cmi_scores = torch.tensor([cmi_score], dtype=torch.float32, device=model.device)
+		# input_cmi_scores = torch.tensor([cmi_score], dtype=torch.float32, device=model.device)
 		model_kwargs = {"encoder_outputs": model.get_encoder()(encoder_input_ids.repeat_interleave(num_beams, dim=0), return_dict=True)}
 		beam_scorer = BeamSearchScorer(batch_size=1, num_beams=num_beams, device=model.device)
-		stopping_criteria=StoppingCriteriaList([MaxLengthCriteria(max_length=model.config.max_length)])
-		outputs = fudge_beam_search(input_ids=input_ids, input_cmi_scores=input_cmi_scores, beam_scorer=beam_scorer, stopping_criteria=stopping_criteria, condition_lambda=condition_lambda, **model_kwargs)
+		stopping_criteria=StoppingCriteriaList([MaxLengthCriteria(max_length=512)])
+		# outputs = fudge_beam_search(input_ids=input_ids, input_cmi_scores=input_cmi_scores, beam_scorer=beam_scorer, stopping_criteria=stopping_criteria, condition_lambda=condition_lambda, **model_kwargs)
+		outputs = fudge_beam_search(input_ids=input_ids, beam_scorer=beam_scorer, stopping_criteria=stopping_criteria, condition_lambda=condition_lambda, **model_kwargs)
 		return [t5_tokenizer.decode(t, skip_special_tokens=True).strip() for t in outputs]
 
 
 input_texts = []
 references = []
-cmi_scores = []
+# cmi_scores = []
 task_prefix = "to_cm "
 with open(args.input_filename, "r") as f:
-	for line in f.readlines()[:250]:
+	for line in f.readlines():
 		components = line.strip().split('\t')
 		input_texts.append(task_prefix + components[0])
-		references.append(components[1])
-		cmi_scores.append(float(components[2]))
-assert len(references) == len(input_texts)
+		# references.append(components[1])
+		# cmi_scores.append(float(components[2]))
+# assert len(references) == len(input_texts)
 
 
 bleu_dict={}
-for cl in [3.0, 4.0, 5.0]:
+for cl in [0.0]:
 	print(f"Running beam search with cl : {cl}", flush=True)
-	output_file = f"{args.output_directory}/generated_predictions_lambda_{cl}_beam_{args.beam_width}.tsv"
+	output_file = f"{args.output_directory}/treebank_en_{cl}_beam_{args.beam_width}.tsv"
 	predictions = []
 	st_time = time.time()
 	for i in range(len(input_texts)):
-		prediction = beam_search(input_texts[i], cmi_scores[i], condition_lambda=cl, num_beams=args.beam_width)
+		# prediction = beam_search(input_texts[i], cmi_scores[i], condition_lambda=cl, num_beams=args.beam_width)
+		prediction = beam_search(input_texts[i], condition_lambda=cl, num_beams=args.beam_width)
 		predictions.append(prediction[0])
 		print(f"Evaluated input {i}", flush=True)
 	total_time = time.time() - st_time
@@ -256,19 +276,19 @@ for cl in [3.0, 4.0, 5.0]:
 			f.write(";".join([input_text, prediction]))
 			f.write("\n")
 			
-	bleu = mt.bleu(targets=references, predictions=predictions)
-	result = {"bleu": bleu["bleu"]}
+	# bleu = mt.bleu(targets=references, predictions=predictions)
+	# result = {"bleu": bleu["bleu"]}
 
-	cmi_acc = mt.cmi_bucket_accuracy(targets=references, predictions=predictions)
-	result["cmi_acc"] = cmi_acc["cmi_bucket_accuracy"]
+	# cmi_acc = mt.cmi_bucket_accuracy(targets=references, predictions=predictions)
+	# result["cmi_acc"] = cmi_acc["cmi_bucket_accuracy"]
 
-	cmi_corr = mt.cmi_correlation(targets=references, predictions=predictions)
-	result["cmi_corr"] = cmi_corr["cmi_correlation"]
+	# cmi_corr = mt.cmi_correlation(targets=references, predictions=predictions)
+	# result["cmi_corr"] = cmi_corr["cmi_correlation"]
 
-	cmi_bleu_hm = mt.cmi_acc_bleu_hm(targets=references, predictions=predictions)
-	result["cmi_bleu_hm"] = cmi_bleu_hm["cmi_acc_bleu_hm"]
+	# cmi_bleu_hm = mt.cmi_acc_bleu_hm(targets=references, predictions=predictions)
+	# result["cmi_bleu_hm"] = cmi_bleu_hm["cmi_acc_bleu_hm"]
 
-	result = {k: round(v, 4) for k, v in result.items()}
-	pprint.pprint(result)
+	# result = {k: round(v, 4) for k, v in result.items()}
+	# pprint.pprint(result)
 
 print("Done.")
