@@ -26,7 +26,10 @@ from typing import Optional
 import metrics as mt
 import datasets
 import numpy as np
+import random
 from datasets import load_dataset, load_metric
+
+random.seed(0)
 
 import transformers
 from transformers import (
@@ -114,7 +117,7 @@ class DataTrainingArguments:
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=4,
+        default=8,
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_source_length: Optional[int] = field(
@@ -290,8 +293,6 @@ def main():
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
 
-    prefix = data_args.source_prefix if data_args.source_prefix is not None else ""
-
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.
     if training_args.do_train:
@@ -321,16 +322,20 @@ def main():
     def preprocess_function(examples):
         en_hi_prefix = "to_hi "
         hi_en_prefix = "to_en "
-        inputs = [en_hi_prefix + str(source) for source in examples[source_lang]] + [hi_en_prefix + str(target) for target in examples[target_lang]]
-        targets = [str(target) for target in examples[target_lang]] + [str(source) for source in examples[source_lang]]
-        inputs_and_targets = [(inp, tar) for inp, tar in zip(inputs_and_targets)]
+        inputs  = []
+        targets = []
+        for inp, tar in zip(examples[source_lang], examples[target_lang]):
+            inputs.append(en_hi_prefix + str(inp).strip())
+            targets.append(tar)
+            inputs.append(hi_en_prefix + str(tar).strip())
+            targets.append(inp)
+
+        inputs_and_targets = [(inp, tar) for inp, tar in zip(inputs, targets) if inp!="" and tar!="" and inp is not None and tar is not None]
         random.shuffle(inputs_and_targets)
         inputs = [inp for (inp, _) in inputs_and_targets]
-        tagrtes = [tar for (_, tar) in inputs_and_targets]
+        targets = [tar for (_, tar) in inputs_and_targets]
 
         assert len(inputs) == len(targets)
-        print(inputs[0:5])
-        print(targets[0:5])
 
         model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
 
