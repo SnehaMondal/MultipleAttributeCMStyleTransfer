@@ -327,33 +327,29 @@ def main():
     if training_args.do_train:
         train_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer)
         train_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer)
-        # print(train_dataset)
 
     if training_args.do_eval:      
         eval_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='validation')
         eval_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='validation')
-        # print(eval_dataset)
 
     if training_args.do_predict:
         predict_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='test')
         predict_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='test')
 
     # Data collator
-    data_collator = pd.create_collator(data_args, training_args, tokenizer, model)
+    data_collator_generate = pd.create_collator_generate(data_args, training_args, tokenizer, model)
+    data_collator_classify = pd.create_collator_classify(tokenizer)
 
-
-    ## TODO: Training Loop follows
-    ## collator separate or not?
 
     train_dataloader_generate = DataLoader(
-        train_dataset_generate, shuffle=True, collate_fn=data_collator, batch_size=training_args.per_device_train_batch_size
+        train_dataset_generate, shuffle=True, collate_fn=data_collator_generate, batch_size=training_args.per_device_train_batch_size
     )
-    eval_dataloader_generate = DataLoader(eval_dataset_generate, collate_fn=data_collator, batch_size=training_args.per_device_eval_batch_size)
+    eval_dataloader_generate = DataLoader(eval_dataset_generate, collate_fn=data_collator_generate, batch_size=training_args.per_device_eval_batch_size)
 
     train_dataloader_classify = DataLoader(
-        train_dataset_classify, shuffle=True, collate_fn=data_collator, batch_size=training_args.per_device_train_batch_size
+        train_dataset_classify, shuffle=True, collate_fn=data_collator_classify, batch_size=training_args.per_device_train_batch_size
     )
-    eval_dataloader_classify = DataLoader(eval_dataset_classify, collate_fn=data_collator, batch_size=training_args.per_device_eval_batch_size)
+    eval_dataloader_classify = DataLoader(eval_dataset_classify, collate_fn=data_collator_classify, batch_size=training_args.per_device_eval_batch_size)
 
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
@@ -406,7 +402,7 @@ def main():
         if training_args.with_tracking:
             total_loss_generate = 0
             total_loss_classify = 0
-        dataloader_classify_iterator = iter(train_dataloader_classify)
+        
         for step, batch in enumerate(train_dataloader_generate):
             outputs = model(**batch)
             loss = outputs.loss
@@ -424,15 +420,21 @@ def main():
             model.eval()
             classification_model.train()
 
-            with torch.no_grad():
+            try:
                 batch_classify = next(dataloader_classify_iterator)
+            except:
+                dataloader_classify_iterator = iter(train_dataloader_classify)
+                batch_classify = next(dataloader_classify_iterator)
+            with torch.no_grad():
                 encoder_outputs = model.encoder(
                     input_ids=batch_classify['input_ids'],
-                    attention_mask=batch_classify['attention_mask']
+                    attention_mask=batch_classify['attention_mask'],
+                    return_dict=True
                 )
+                hidden_states = encoder_outputs.last_hidden_state
+                # pooling over sentence tokens only (indicated by attention mask)
+                hidden_states = torch.mean(hidden_states * batch_classify["attention_mask"].unsqueeze(-1), axis=1).squeeze()
 
-                hidden_states = encoder_outputs[0]
-                hidden_states = (torch.mean(hidden_states, dim=1)).squeeze()
             outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
             loss = criterion(outputs, batch_classify["attr_labels"])
             if training_args.with_tracking:
