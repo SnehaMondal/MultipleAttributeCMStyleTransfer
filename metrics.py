@@ -1,16 +1,39 @@
 import numpy as np
 from datasets import load_metric
-import sys
-sys.path.append('../controllable-codeximing')
-from t5.evaluation.metrics import bleu, cmi_bucket_accuracy, cmi_correlation
+from statistics import harmonic_mean
+from spi import spi_bucket_accuracy, spi_correlation
+from cmi import cmi_bucket_accuracy, cmi_correlation
+import sacrebleu
 
 metric = load_metric("sacrebleu")
+
+def bleu(targets, predictions):
+	if isinstance(targets[0], list):
+		targets = [[x for x in target] for target in targets]
+	else:
+	# Need to wrap targets in another list for corpus_bleu.
+		targets = [targets]
+
+	bleu_score = sacrebleu.corpus_bleu(predictions, targets,
+									 smooth_method="exp",
+									 smooth_value=0.0,
+									 force=False,
+									 lowercase=False,
+									 tokenize="intl",
+									 use_effective_order=False)
+	return {"bleu": bleu_score.score}
 
 def postprocess_text(preds, labels):
     preds = [pred.strip() for pred in preds]
     labels = [label.strip() for label in labels]
 
     return preds, labels
+
+def acc_bleu_hm(cmi_acc, spi_acc,  bleu):
+    cmi_acc = cmi_acc*100
+    spi_acc = spi_acc*100
+    hm = harmonic_mean([cmi_acc, spi_acc, bleu])
+    return {"acc_bleu_hm": hm}
 
 def compute_metrics(eval_preds, tokenizer, data_args):
     preds, labels = eval_preds
@@ -34,5 +57,19 @@ def compute_metrics(eval_preds, tokenizer, data_args):
 
     cmi_corr = cmi_correlation(decoded_labels, decoded_preds)
     result["cmi_corr"] = cmi_corr["cmi_correlation"]
+    
+    result["cmi_bleu_hm"] = harmonic_mean([result["cmi_acc"]*100,result["bleu"]])
+
+    spi_acc = spi_bucket_accuracy(decoded_labels, decoded_preds)
+    result["spi_acc"] = spi_acc["spi_bucket_accuracy"]
+
+    spi_corr = spi_correlation(decoded_labels, decoded_preds)
+    result["spi_corr"] = spi_corr["spi_correlation"]
+    
+    result["spi_bleu_hm"] = harmonic_mean([result["spi_acc"]*100,result["bleu"]])
+    
+    cmi_spi_bleu_hm = acc_bleu_hm(result["cmi_acc"], result["spi_acc"], result["bleu"])
+    result["cmi_spi_bleu_hm"] = cmi_spi_bleu_hm["acc_bleu_hm"]
+
     result = {k: round(v, 4) for k, v in result.items()}
     return result
