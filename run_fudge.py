@@ -20,14 +20,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--input_filename', type=str, required=True)
 parser.add_argument('--output_directory', type=str, required=True)
 parser.add_argument('--path_to_cmgen_model', type=str, required=True)
-parser.add_argument('--path_to_predictor', type=str, required=True)
+parser.add_argument('--predictor_name', type=str, required=True)
 parser.add_argument('--beam_width', type=int, required=True)
 parser.add_argument('--make_formal', dest='make_formal', default=False, action='store_true')
 args = parser.parse_args()
 
 print(args.input_filename)
 print(args.output_directory)
-print(args.path_to_predictor)
+print(args.predictor_name)
 
 if (args.make_formal):
 	logit_index = 1
@@ -45,25 +45,33 @@ t5_tokenizer = T5Tokenizer.from_pretrained(args.path_to_cmgen_model)
 model = MT5ForConditionalGeneration.from_pretrained(args.path_to_cmgen_model, return_dict=True).to(device)
 model.eval()
 print(f"Loaded codemixed generation model from {args.path_to_cmgen_model}")
-# print(f"Max length : {model.config.max_leng}")
+
 
 #load predictor model
 xlm_tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
-
 conditioning_model = XLMRobertaModelWithHeads.from_pretrained("xlm-roberta-base")
-
-# conditioning_model.load_adapter(f"{args.path_to_predictor}/hi", load_as='hi')
-# conditioning_model.load_adapter(f"{args.path_to_predictor}/gyafc", load_as='gyafc')
-# conditioning_model.set_active_adapters(Stack("hi", "gyafc"))
-
-lang_adapter_config = AdapterConfig.load("pfeiffer", reduction_factor=2)
-conditioning_model.load_adapter("en/wiki@ukp", config=lang_adapter_config)
-
-gyafc_config = AdapterConfig.load(
-    "pfeiffer", non_linearity="relu", reduction_factor=16)
-conditioning_model.load_adapter(
-    "../fudge-controlled-generation-creative/xlm-roberta-base_formality_classify_gyafc_pfeiffer", config=gyafc_config)
-conditioning_model.set_active_adapters(Stack("en", "gyafc"))
+print(f"Loading from {args.predictor_name}")
+path_to_base_gyafc = "../fudge-controlled-generation-creative/xlm-roberta-base_formality_classify_gyafc_pfeiffer"
+if (args.predictor_name == "base_en"):
+	print("Base predictor, En head")
+	lang_adapter_config = AdapterConfig.load("pfeiffer", reduction_factor=2)
+	conditioning_model.load_adapter("en/wiki@ukp", config=lang_adapter_config)
+	gyafc_config = AdapterConfig.load("pfeiffer", non_linearity="relu", reduction_factor=16)
+	conditioning_model.load_adapter(path_to_base_gyafc, config=gyafc_config)
+	conditioning_model.set_active_adapters(Stack("en", "gyafc"))
+elif args.predictor_name == "base_hi":
+	print("Base predictor, Hi head")
+	lang_adapter_config = AdapterConfig.load("pfeiffer", reduction_factor=2)
+	conditioning_model.load_adapter("hi/wiki@ukp", config=lang_adapter_config)
+	gyafc_config = AdapterConfig.load("pfeiffer", non_linearity="relu", reduction_factor=16)
+	conditioning_model.load_adapter(path_to_base_gyafc, config=gyafc_config)
+	conditioning_model.set_active_adapters(Stack("hi", "gyafc"))
+else:
+	print("Trained predictor, Hi head")
+	path_to_predictor = "./models/formality_classifiers/train_hi_dev_cs/checkpoint-800"
+	conditioning_model.load_adapter(f"{path_to_predictor}/hi", load_as='hi')
+	conditioning_model.load_adapter(f"{path_to_predictor}/gyafc", load_as='gyafc')
+	conditioning_model.set_active_adapters(Stack("hi", "gyafc"))
 
 conditioning_model.eval()
 conditioning_model.cuda()
@@ -144,7 +152,7 @@ def fudge_beam_search(
 
 			##batch partial prefixes before evaluating
 			batch = []
-			condition_logits = []
+			condition_probs = []
 			formal_batch_size = 2048
 			for i in range(len(partial_prefixes)):
 				prefix = partial_prefixes[i]
@@ -154,14 +162,16 @@ def fudge_beam_search(
 					curr_batch = xlm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt")
 					for k, v in curr_batch.items():
 						curr_batch[k] = v.to(device)
-					condition_logits += conditioning_model(**curr_batch).logits[:, logit_index]
+					condition_probs += torch.nn.functional.softmax(conditioning_model(**curr_batch).logits, dim=1)[:, logit_index]
 					batch = [prefix]
 			if len(batch) > 0:
 				curr_batch = xlm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt")
 				for k, v in curr_batch.items():
 					curr_batch[k] = v.to(device)
-				condition_logits += conditioning_model(**curr_batch).logits[:, logit_index]
-			condition_logits = torch.stack(condition_logits, dim=0).view(num_beams, effective_vocab_size)
+				condition_probs += torch.nn.functional.softmax(conditioning_model(**curr_batch).logits, dim=1)[:, logit_index]
+			condition_probs = torch.stack(condition_probs, dim=0)
+			condition_logits = torch.log(condition_probs/(1-condition_probs))
+			condition_logits = condition_logits.view(num_beams, effective_vocab_size)
 
 		full_logits = top_logits + condition_lambda * condition_logits
 
@@ -248,7 +258,7 @@ references = []
 # cmi_scores = []
 task_prefix = "to_cm "
 with open(args.input_filename, "r") as f:
-	for line in f.readlines():
+	for line in f.readlines()[:100]:
 		components = line.strip().split('\t')
 		input_texts.append(task_prefix + components[0])
 		# references.append(components[1])
@@ -257,9 +267,9 @@ with open(args.input_filename, "r") as f:
 
 
 bleu_dict={}
-for cl in [0.0]:
+for cl in [1.0, 2.0, 3.0]:
 	print(f"Running beam search with cl : {cl}", flush=True)
-	output_file = f"{args.output_directory}/treebank_en_{cl}_beam_{args.beam_width}.tsv"
+	output_file = f"{args.output_directory}/{args.predictor_name}/logit_treebank_to_formal_fudge_{cl}.tsv"
 	predictions = []
 	st_time = time.time()
 	for i in range(len(input_texts)):
