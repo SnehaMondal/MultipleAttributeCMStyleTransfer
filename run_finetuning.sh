@@ -25,7 +25,7 @@ python main.py \
 --optim='adafactor' \
 --max_source_length=128 \
 --max_target_length=128 \
---save_total_limit=1
+--save_total_limit=1 \
 --max_target_length=128
 
 #### cpi, spi 

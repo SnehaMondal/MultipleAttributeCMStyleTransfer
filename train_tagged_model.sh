@@ -2,16 +2,17 @@
 
 python train_tagged_model.py \
 --do_train --do_eval --do_predict \
---source_lang='en' --target_lang='cm' \
---output_dir='models/tagged_cmi_control' \
+--model_name_or_path='models/translate_pretrained/checkpoint-86000' \
+--source_lang='hi' --target_lang='cm' \
+--output_dir='models/translate_pretrained_cmgen' \
 --per_device_train_batch_size=8 \
 --per_device_eval_batch_size=8 \
 --gradient_accumulation_steps=2 \
 --overwrite_output_dir=False \
 --predict_with_generate \
---train_file='/home/ritikagoyal0991/MultipleAttributeCMStyleTransfer/cm_data/cmi_control_tag/train.tsv' \
---validation_file='/home/ritikagoyal0991/MultipleAttributeCMStyleTransfer/cm_data/cmi_control_tag/dev.tsv' \
---test_file='/home/ritikagoyal0991/MultipleAttributeCMStyleTransfer/cm_data/cmi_control_tag/test.tsv' \
+--train_file='data/masked_train.tsv' \
+--validation_file='data/cmi_control_dev.tsv' \
+--test_file='data/cmi_control_test.tsv' \
 --load_best_model_at_end \
 --metric_for_best_model='cmi_bleu_hm' \
 --num_train_epochs=30.0 \
