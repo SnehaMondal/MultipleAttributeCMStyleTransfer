@@ -276,7 +276,8 @@ def main():
             data_files["validation"] = data_args.validation_file
         if data_args.test_file is not None:
             data_files["test"] = data_args.test_file
-        raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t', cache_dir=model_args.cache_dir, column_names=[data_args.source_lang, data_args.target_lang])
+        raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t', cache_dir=model_args.cache_dir, column_names=[data_args.source_lang, data_args.target_lang],
+                                    on_bad_lines='warn')
 
     # Set up config and tokenizer from open source model.
     model = MT5ForConditionalGeneration.from_pretrained("google/mt5-small")
