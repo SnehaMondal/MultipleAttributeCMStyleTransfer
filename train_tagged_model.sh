@@ -3,6 +3,7 @@
 python train_tagged_model.py \
 --do_train --do_eval --do_predict \
 --source_lang='en' --target_lang='cm' \
+--model_name_or_path="google/mt5-small" \
 --output_dir='models/tagged_cmi_control' \
 --per_device_train_batch_size=8 \
 --per_device_eval_batch_size=8 \
