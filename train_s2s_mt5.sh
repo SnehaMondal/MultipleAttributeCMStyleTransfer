@@ -1,20 +1,20 @@
 #!/bin/bash
 
-python train_tagged_model.py \
+python train_s2s_mt5.py \
 --do_train --do_eval --do_predict \
 --source_lang='en' --target_lang='cm' \
 --model_name_or_path="google/mt5-small" \
---output_dir='models/tagged_cmi_control' \
---per_device_train_batch_size=8 \
---per_device_eval_batch_size=8 \
---gradient_accumulation_steps=2 \
+--output_dir='models/mt5_cmgen' \
+--per_device_train_batch_size=16 \
+--per_device_eval_batch_size=16 \
+--gradient_accumulation_steps=1 \
 --overwrite_output_dir=False \
 --predict_with_generate \
---train_file='/home/ritikagoyal0991/MultipleAttributeCMStyleTransfer/cm_data/cmi_control_tag/train.tsv' \
---validation_file='/home/ritikagoyal0991/MultipleAttributeCMStyleTransfer/cm_data/cmi_control_tag/dev.tsv' \
---test_file='/home/ritikagoyal0991/MultipleAttributeCMStyleTransfer/cm_data/cmi_control_tag/test.tsv' \
+--train_file='data/raw_splits/hi_cm_train.tsv' \
+--validation_file='data/raw_splits/hi_cm_valid.tsv' \
+--test_file='data/raw_splits/hi_cm_test.tsv' \
 --load_best_model_at_end \
---metric_for_best_model='cmi_bleu_hm' \
+--metric_for_best_model='bleu' \
 --num_train_epochs=30.0 \
 --learning_rate=5e-4 \
 --eval_steps=1000 \

@@ -285,8 +285,8 @@ def main():
         raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t', cache_dir=model_args.cache_dir, column_names=[data_args.source_lang, data_args.target_lang])
 
     # Set up config and tokenizer from open source model.
-    model = MT5ForConditionalGeneration.from_pretrained(data_args.model_name_or_path)
-    tokenizer = T5Tokenizer.from_pretrained(data_args.model_name_or_path)
+    model = MT5ForConditionalGeneration.from_pretrained(model_args.model_name_or_path)
+    tokenizer = T5Tokenizer.from_pretrained(model_args.model_name_or_path)
     model.resize_token_embeddings(len(tokenizer))
 
     # Set decoder_start_token_id
