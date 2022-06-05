@@ -8,7 +8,7 @@ python main.py \
 --per_device_train_batch_size=8 \
 --per_device_eval_batch_size=8 \
 --gradient_accumulation_steps=2 \
---overwrite_output_dir=True \
+--overwrite_output_dir=False \
 --predict_with_generate \
 --train_file='data/cmi_vector/hi_cm_train.tsv' \
 --validation_file='data/cmi_vector/hi_cm_valid.tsv' \
@@ -27,6 +27,7 @@ python main.py \
 --optim='adafactor' \
 --max_source_length=128 \
 --max_target_length=128 \
+--save_total_limit=1 \
 --use_classification_obj=True \
 --train_file_classify='data/classification/shuf_hi_cm_train_classify.tsv' \
 --validation_file_classify=data/classification/hi_cm_valid_classify.tsv
