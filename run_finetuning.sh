@@ -1,9 +1,10 @@
 #!/bin/bash
 
 python main.py \
+--model_name_or_path="google/mt5-small" \
 --do_train --do_eval --do_predict \
 --source_lang='en' --target_lang='cm' \
---output_dir='models/mt5_cmi_vector' \
+--output_dir='models/mt5_cmi_vec_classification' \
 --per_device_train_batch_size=8 \
 --per_device_eval_batch_size=8 \
 --gradient_accumulation_steps=2 \
@@ -14,7 +15,7 @@ python main.py \
 --test_file='data/cmi_vector/hi_cm_test.tsv' \
 --load_best_model_at_end \
 --metric_for_best_model='cmi_bleu_hm' \
---num_train_epochs=10.0 \
+--num_train_epochs=30.0 \
 --learning_rate=5e-4 \
 --eval_steps=1000 \
 --save_steps=1000 \
@@ -26,4 +27,6 @@ python main.py \
 --optim='adafactor' \
 --max_source_length=128 \
 --max_target_length=128 \
---use_classification_obj=False
+--use_classification_obj=True \
+--train_file_classify='data/classification/shuf_hi_cm_train_classify.tsv' \
+--validation_file_classify=data/classification/hi_cm_valid_classify.tsv
