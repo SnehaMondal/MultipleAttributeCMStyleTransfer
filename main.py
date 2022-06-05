@@ -348,29 +348,21 @@ def main():
 
     if training_args.do_train:
         train_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer)
-        train_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer)
-
+        
     if training_args.do_eval:      
         eval_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='validation')
-        eval_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='validation')
-
+        
     if training_args.do_predict:
         predict_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='test')
     
     # Data collator
     data_collator_generate = pd.create_collator_generate(data_args, training_args, tokenizer, model)
-    data_collator_classify = pd.create_collator_classify(tokenizer, training_args)
-
 
     train_dataloader_generate = DataLoader(
         train_dataset_generate, shuffle=True, collate_fn=data_collator_generate, batch_size=training_args.per_device_train_batch_size
     )
     eval_dataloader_generate = DataLoader(eval_dataset_generate, collate_fn=data_collator_generate, batch_size=training_args.per_device_eval_batch_size)
 
-    train_dataloader_classify = DataLoader(
-        train_dataset_classify, shuffle=True, collate_fn=data_collator_classify, batch_size=training_args.per_device_train_batch_size
-    )
-    eval_dataloader_classify = DataLoader(eval_dataset_classify, collate_fn=data_collator_classify, batch_size=training_args.per_device_eval_batch_size)
 
     decay_parameters = get_parameter_names(model, [nn.LayerNorm])
     decay_parameters = [name for name in decay_parameters if "bias" not in name]
@@ -385,7 +377,6 @@ def main():
         },
     ]
     optimizer_generate = Adafactor(optimizer_grouped_parameters, lr=training_args.learning_rate, scale_parameter=False, relative_step=False)
-    optimizer_classify = AdamW([p for _, p in classification_model.named_parameters()], lr=training_args.learning_rate)
 
     num_update_steps_per_epoch = math.ceil(len(train_dataloader_generate) / training_args.gradient_accumulation_steps)
     training_args.max_train_steps = int(training_args.num_train_epochs * num_update_steps_per_epoch)
@@ -397,10 +388,22 @@ def main():
     )
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    criterion = nn.BCEWithLogitsLoss()
-    classification_model.to(device)
     model.to(device)
-    criterion.to(device)
+    
+
+    if model_args.use_classification_obj:
+        train_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer)
+        eval_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='validation')
+        data_collator_classify = pd.create_collator_classify(tokenizer, training_args)
+
+        train_dataloader_classify = DataLoader(
+        train_dataset_classify, shuffle=True, collate_fn=data_collator_classify, batch_size=training_args.per_device_train_batch_size)
+        eval_dataloader_classify = DataLoader(eval_dataset_classify, collate_fn=data_collator_classify, batch_size=training_args.per_device_eval_batch_size)
+
+        optimizer_classify = AdamW([p for _, p in classification_model.named_parameters()], lr=training_args.learning_rate)
+        criterion = nn.BCEWithLogitsLoss()
+        classification_model.to(device)
+        criterion.to(device)
 
     total_batch_size = training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps
 
@@ -424,9 +427,8 @@ def main():
     accuracy = load_metric("accuracy")
     writer = SummaryWriter(f"{training_args.output_dir}/runs")
     for epoch in range(starting_epoch, int(training_args.num_train_epochs)):
-        if model_args.with_tracking:
-            epoch_loss_generate = 0
-            epoch_loss_classify = 0
+        epoch_loss_generate = 0
+        epoch_loss_classify = 0
         
         for step, batch in enumerate(train_dataloader_generate):
             for k, v in batch.items():
@@ -436,8 +438,7 @@ def main():
  
             outputs = model(**batch)
             gen_loss = outputs.loss
-            if model_args.with_tracking:
-                epoch_loss_generate += gen_loss.detach().float()
+            epoch_loss_generate += gen_loss.detach().float()
             gen_loss = gen_loss / training_args.gradient_accumulation_steps
             gen_loss.backward()
             if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_generate) - 1:
@@ -469,8 +470,7 @@ def main():
                 
                 outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
                 classifier_loss = criterion(outputs.squeeze(), batch_classify["labels"])
-                if model_args.with_tracking:
-                    epoch_loss_classify += classifier_loss.detach().float()
+                epoch_loss_classify += classifier_loss.detach().float()
                 classifier_loss = classifier_loss / training_args.gradient_accumulation_steps
                 classifier_loss.backward()
                 if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
@@ -534,13 +534,13 @@ def main():
 
         #record training loss per epoch
         writer.flush()
-        if model_args.with_tracking:
-            result = dict()
-            result["epoch_loss_generate"] = epoch_loss_generate
-            result["epoch_loss_classify"] = epoch_loss_classify
-            result["epoch"] = epoch
-            result["step"] = completed_steps
-            logger.info(result)
+
+        result = dict()
+        result["epoch_loss_generate"] = epoch_loss_generate
+        result["epoch_loss_classify"] = epoch_loss_classify
+        result["epoch"] = epoch
+        result["step"] = completed_steps
+        logger.info(result)
             
 
     logger.info("Training complete")

@@ -27,15 +27,17 @@ def load_data(data_args, model_args):
                                 column_names=[data_args.source_lang, data_args.target_lang]+data_args.attr_names)
 
     data_files_classify = {}
-    if data_args.train_file_classify is not None:
-        data_files_classify["train"] = data_args.train_file_classify
-    if data_args.validation_file_classify is not None:
-        data_files_classify["validation"] = data_args.validation_file_classify
-    if data_args.test_file_classify is not None:
-        data_files_classify["test"] = data_args.test_file_classify
-    raw_datasets_classify = load_dataset('csv', data_files=data_files_classify, delimiter = '\t',
-                                cache_dir=model_args.cache_dir,
-                                column_names=[data_args.source_lang] + data_args.attr_names + ['labels'])
+    raw_datasets_classify = None
+    if model_args.use_classification_obj:
+        if data_args.train_file_classify is not None:
+            data_files_classify["train"] = data_args.train_file_classify
+        if data_args.validation_file_classify is not None:
+            data_files_classify["validation"] = data_args.validation_file_classify
+        if data_args.test_file_classify is not None:
+            data_files_classify["test"] = data_args.test_file_classify
+        raw_datasets_classify = load_dataset('csv', data_files=data_files_classify, delimiter = '\t',
+                                    cache_dir=model_args.cache_dir,
+                                    column_names=[data_args.source_lang] + data_args.attr_names + ['labels'])
     return raw_datasets_generate, raw_datasets_classify
 
 class CustomDatasetGenerate(torch.utils.data.Dataset):
