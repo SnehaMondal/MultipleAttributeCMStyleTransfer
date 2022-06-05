@@ -75,6 +75,7 @@ class ModelArguments:
             "with private models)."
         },
     )
+    use_classification_obj: bool = field(default=False)
 
 
 @dataclass
@@ -290,7 +291,7 @@ def main():
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
 
-    raw_datasets = pd.load_data(data_args, model_args)
+    raw_datasets, _ = pd.load_data(data_args, model_args)
     # print(raw_datasets["train"])
 
     if training_args.do_train:
@@ -305,7 +306,7 @@ def main():
         predict_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='test')
 
     # Data collator
-    data_collator = pd.create_collator(data_args, training_args, tokenizer, model)
+    data_collator = pd.create_collator_generate(data_args, training_args, tokenizer, model)
 
 
     # Initialize our Trainer
