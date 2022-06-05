@@ -530,7 +530,7 @@ def main():
                 if metrics[metric_for_best_model] > best_metric_so_far:
                     best_metric_so_far = metrics[metric_for_best_model]
                     best_checkpoint_so_far = completed_steps
-                logger.info(f"Best checkpoint so far : checkpoint-{best_checkpoint_so_far}")
+                logger.info(f"Best checkpoint so far : checkpoint-{best_checkpoint_so_far}, based on metric {metric_for_best_model} with value : {best_metric_so_far}")
 
         #record training loss per epoch
         writer.flush()
