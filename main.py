@@ -30,6 +30,7 @@ from typing import Optional, List
 import pprint
 
 import datasets
+from datasets import load_metric
 
 import transformers
 from transformers import (
@@ -48,10 +49,6 @@ from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 from transformers.trainer_pt_utils import get_parameter_names
 
-from accelerate import Accelerator
-from accelerate.logging import get_logger
-from accelerate.utils import set_seed
-
 import prepare_dataset as pd
 import metrics as mt
 from model import MT5ForStyleConditionalGeneration
@@ -59,6 +56,7 @@ from classifier_model import ClassifierModel
 from trainer_eval import CustomSeq2SeqTrainer
 
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +260,7 @@ class DataTrainingArguments:
             self.val_max_target_length = self.max_target_length
 
 
+
 def main():
 
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
@@ -272,7 +271,6 @@ def main():
     log_file = model_name+'.log'
     log_fh = logging.FileHandler(log_file)
     # Setup logging
-    accelerator = Accelerator(log_with="all", logging_dir=training_args.output_dir) if model_args.with_tracking else Accelerator()
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
@@ -314,7 +312,6 @@ def main():
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
-
 
     #Load model for style conditional generation.
     logging.info(f"Loading available weights from : {model_args.model_name_or_path}")
@@ -395,26 +392,14 @@ def main():
         num_warmup_steps=training_args.warmup_steps,
         num_training_steps=training_args.max_train_steps,
     )
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     criterion = nn.BCEWithLogitsLoss()
+    classification_model.to(device)
+    model.to(device)
+    criterion.to(device)
 
-    model, optimizer_generate, train_dataloader_generate, eval_dataloader_generate, lr_scheduler_generate = accelerator.prepare(
-        model, optimizer_generate, train_dataloader_generate, eval_dataloader_generate, lr_scheduler_generate
-    )
-
-    classification_model, optimizer_classify, train_dataloader_classify, eval_dataloader_classify, criterion = accelerator.prepare(
-        classification_model, optimizer_classify, train_dataloader_classify, eval_dataloader_classify, criterion
-    )
-    # Repeat, not sure why.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader_generate) / training_args.gradient_accumulation_steps)
-    training_args.max_train_steps = int(training_args.num_train_epochs * num_update_steps_per_epoch)
-
-    if model_args.with_tracking:
-        experiment_config = vars(training_args)
-        experiment_config["lr_scheduler_type"] = str(experiment_config["lr_scheduler_type"].value)
-        experiment_config = {k:v for k, v in experiment_config.items() if isinstance(v, (float, str, int, bool))}
-        accelerator.init_trackers("generate_with_classify", experiment_config)
-
-    total_batch_size = training_args.per_device_train_batch_size * accelerator.num_processes * training_args.gradient_accumulation_steps
+    total_batch_size = training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps
 
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset_generate)}")
@@ -433,20 +418,26 @@ def main():
     best_checkpoint_so_far = None
     best_metric_so_far = -1
 
+    accuracy = load_metric("accuracy")
+    writer = SummaryWriter()
     for epoch in range(starting_epoch, int(training_args.num_train_epochs)):
-        model.train()
         if model_args.with_tracking:
-            total_loss_generate = 0
-            total_loss_classify = 0
+            epoch_loss_generate = 0
+            epoch_loss_classify = 0
         
         for step, batch in enumerate(train_dataloader_generate):
+            for k, v in batch.items():
+                batch[k] = v.to(device)
+
             model.train()
+            # classification_model.train()
+ 
             outputs = model(**batch)
-            loss = outputs.loss
+            gen_loss = outputs.loss
             if model_args.with_tracking:
-                total_loss_generate += loss.detach().float()
-            loss = loss / training_args.gradient_accumulation_steps
-            accelerator.backward(loss)
+                epoch_loss_generate += gen_loss.detach().float()
+            gen_loss = gen_loss / training_args.gradient_accumulation_steps
+            gen_loss.backward()
             if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_generate) - 1:
                 optimizer_generate.step()
                 lr_scheduler_generate.step()
@@ -455,50 +446,57 @@ def main():
                 completed_steps += 1
 
             # set model to eval mode before getting encoder embeddings
-            classification_model.train()
-            model.eval()
-            try:
-                batch_classify = next(dataloader_classify_iterator)
-            except:
-                dataloader_classify_iterator = iter(train_dataloader_classify)
-                batch_classify = next(dataloader_classify_iterator)
-            with torch.no_grad():
-                encoder_outputs = model.encoder(
-                    input_ids=batch_classify['input_ids'],
-                    attention_mask=batch_classify['attention_mask'],
-                    return_dict=True
-                )
-                hidden_states = encoder_outputs.last_hidden_state
-                hidden_states = torch.mean(hidden_states * batch_classify["attention_mask"].unsqueeze(-1), axis=1).squeeze()
+            # model.eval()
+            # try:
+            #     batch_classify = next(dataloader_classify_iterator)
+            # except:
+            #     dataloader_classify_iterator = iter(train_dataloader_classify)
+            #     batch_classify = next(dataloader_classify_iterator)
+            # for k, v in batch_classify.items():
+            #     batch_classify[k] = v.to(device)
+            # with torch.no_grad():
+            #     encoder_outputs = model.encoder(
+            #         input_ids=batch_classify['input_ids'],
+            #         attention_mask=batch_classify['attention_mask'],
+            #         return_dict=True
+            #     )
+            #     hidden_states = encoder_outputs.last_hidden_state
+            #     hidden_states = torch.mean(hidden_states * batch_classify["attention_mask"].unsqueeze(-1), axis=1).squeeze()
             
-            outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
-            loss = criterion(outputs.squeeze(), batch_classify["labels"])
-            if model_args.with_tracking:
-                total_loss_classify += loss.detach().float()
-            loss = loss / training_args.gradient_accumulation_steps
-            accelerator.backward(loss)
-            if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
-                optimizer_classify.step()
-                optimizer_classify.zero_grad()
+            # outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
+            # classifier_loss = criterion(outputs.squeeze(), batch_classify["labels"])
+            # if model_args.with_tracking:
+            #     epoch_loss_classify += classifier_loss.detach().float()
+            # classifier_loss = classifier_loss / training_args.gradient_accumulation_steps
+            # classifier_loss.backward()
+            # if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
+            #     optimizer_classify.step()
+            #     optimizer_classify.zero_grad()
 
 
             #checkpointing, logging and evaluation
             if (completed_steps % training_args.eval_steps == 0):
-                #log training loss
-                if model_args.with_tracking:
-                    result = dict()
-                    result["train_loss_generate"] = total_loss_generate
-                    result["train_loss_classify"] = total_loss_classify
-                    result["epoch"] = epoch
-                    result["step"] = completed_steps
-                    accelerator.log(result)
+                # will evaluate both models
+                model.eval()
+                classification_model.eval()
+                logger.info(f"*** Evaluate ***")
 
-                # save checkpoint
-                output_dir = f"checkpoint-{completed_steps}"
-                logger.info(f"Saving checkpoint to {output_dir}")
-                if training_args.output_dir is not None:
-                    output_dir = os.path.join(training_args.output_dir, output_dir)
-                    model.save_pretrained(output_dir, state_dict=model.state_dict())
+                # # evaluate classifier
+                # for step, batch_eval in enumerate(eval_dataloader_classify):
+                #     for k, v in batch_eval.items():
+                #         batch_eval[k] = v.to(device)
+                #     encoder_outputs = model.encoder(
+                #             input_ids=batch_eval['input_ids'],
+                #             attention_mask=batch_eval['attention_mask'],
+                #             return_dict=True
+                #         )
+                #     hidden_states = encoder_outputs.last_hidden_state
+                #     hidden_states = torch.mean(hidden_states * batch_eval["attention_mask"].unsqueeze(-1), axis=1).squeeze()
+                #     predictions = torch.sigmoid(classification_model(hidden_states, batch_eval['input_style_scores'])).round().detach().cpu().numpy()
+                #     accuracy.add_batch(predictions=predictions, references=batch_eval["labels"].cpu())
+                # eval_acc = accuracy.compute()
+                # writer.add_scalar("binary-acc/eval", eval_acc["accuracy"], completed_steps)
+                # logger.info(f"Classifier accuracy at step {completed_steps} : {eval_acc}")
 
                 #evaluate model
                 trainer = CustomSeq2SeqTrainer(
@@ -509,13 +507,19 @@ def main():
                             data_collator=data_collator_generate,
                             compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args)
                         )
-                logger.info(f"*** Evaluate ***")
                 metrics = trainer.evaluate()
-                max_eval_samples = len(eval_dataset_generate)
-                metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset_generate))
-
                 trainer.log_metrics("eval", metrics)
                 trainer.save_metrics("eval", metrics)
+
+                for k, v in metrics.items():
+                    writer.add_scalar(f"{k}/eval", v, completed_steps)
+
+                # save checkpoint
+                output_dir = f"checkpoint-{completed_steps}"
+                logger.info(f"Saving checkpoint to {output_dir}")
+                if training_args.output_dir is not None:
+                    output_dir = os.path.join(training_args.output_dir, output_dir)
+                    model.save_pretrained(output_dir, state_dict=model.state_dict())
 
                 #keep track of best model so far, assume greater is better. Will not work for loss.
                 if metrics[metric_for_best_model] > best_metric_so_far:
@@ -523,8 +527,19 @@ def main():
                     best_checkpoint_so_far = completed_steps
                 logger.info(f"Best checkpoint so far : checkpoint-{best_checkpoint_so_far}")
 
+        #record training loss per epoch
+        writer.flush()
+        if model_args.with_tracking:
+            result = dict()
+            result["epoch_loss_generate"] = epoch_loss_generate
+            result["epoch_loss_classify"] = epoch_loss_classify
+            result["epoch"] = epoch
+            result["step"] = completed_steps
+            logger.info(result)
+            
 
     logger.info("Training complete")
+    writer.close()
     best_model_dir = os.path.join(training_args.output_dir, f"checkpoint-{best_checkpoint_so_far}")
     model = MT5ForStyleConditionalGeneration.from_pretrained(best_model_dir, num_attr=data_args.num_attr)
     trainer = CustomSeq2SeqTrainer(

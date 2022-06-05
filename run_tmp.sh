@@ -3,23 +3,23 @@
 python main.py \
 --do_train --do_eval --do_predict \
 --source_lang='en' --target_lang='cm' \
---output_dir='models/generate_with_classify' \
---per_device_train_batch_size=8 \
---per_device_eval_batch_size=8 \
---gradient_accumulation_steps=2 \
+--output_dir='models/generate_no_classify' \
+--per_device_train_batch_size=16 \
+--per_device_eval_batch_size=16 \
+--gradient_accumulation_steps=1 \
 --overwrite_output_dir=True \
 --predict_with_generate \
 --train_file='data/cmi_control_train_cmi_vector.tsv' \
 --validation_file='data/cmi_control_dev_cmi_vector.tsv' \
 --test_file='data/cmi_control_test_cmi_vector.tsv' \
---train_file_classify='data/cmi_control_train_classify.tsv' \
+--train_file_classify='data/shuffled_cmi_control_train_classify.tsv' \
 --validation_file_classify='data/cmi_control_dev_classify.tsv' \
 --load_best_model_at_end \
 --metric_for_best_model='cmi_bleu_hm' \
 --num_train_epochs=30.0 \
 --learning_rate=5e-4 \
---eval_steps=500 \
---save_steps=500 \
+--eval_steps=1000 \
+--save_steps=1000 \
 --evaluation_strategy='steps' \
 --save_strategy='steps' \
 --lr_scheduler_type='constant' \
