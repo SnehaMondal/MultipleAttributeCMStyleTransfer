@@ -1,9 +1,9 @@
 #!/bin/bash
 
 python train_translation.py \
---do_train --do_eval --do_predict \
+--do_predict \
 --source_lang='en' --target_lang='hi' \
---model_name_or_path='models/translate_pretrained/checkpoint-92000' \
+--model_name_or_path='models/translate_pretrained/checkpoint-193000' \
 --output_dir='models/translate_pretrained' \
 --per_device_train_batch_size=8 \
 --per_device_eval_batch_size=8 \
@@ -16,7 +16,7 @@ python train_translation.py \
 --load_best_model_at_end \
 --metric_for_best_model='bleu' \
 --num_train_epochs=5.0 \
---learning_rate=5e-4 \
+--learning_rate=5e-5 \
 --eval_steps=1000 \
 --save_steps=1000 \
 --evaluation_strategy='steps' \
