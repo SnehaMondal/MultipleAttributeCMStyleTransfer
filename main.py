@@ -21,27 +21,42 @@ Fine-tuning the library models for sequence to sequence.
 import logging
 import os
 import sys
+import math
+import torch
+import torch.nn as nn
+from tqdm import tqdm
 from dataclasses import dataclass, field
 from typing import Optional, List
+import pprint
 
 import datasets
+from datasets import load_metric
 
 import transformers
 from transformers import (
     T5Tokenizer, T5Config,
     HfArgumentParser,
     Seq2SeqTrainer,
+    AdamW,
+    Adafactor,
     Seq2SeqTrainingArguments,
     set_seed,
+    SchedulerType,
+    get_scheduler
 )
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
+from transformers.trainer_pt_utils import get_parameter_names
 
 import prepare_dataset as pd
 import metrics as mt
 from model import MT5ForStyleConditionalGeneration
+from classifier_model import ClassifierModel
 from trainer_eval import CustomSeq2SeqTrainer
+
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +90,12 @@ class ModelArguments:
             "with private models)."
         },
     )
+    use_classification_obj: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to use the classification objective"
+        },
+    )
 
 
 @dataclass
@@ -96,6 +117,23 @@ class DataTrainingArguments:
         },
     )
     test_file: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "An optional input test data file to evaluate the metrics (sacreblue) on " "a jsonlines file."
+        },
+    )
+    train_file_classify: Optional[str] = field(
+        default=None,
+        metadata={"help": "The input training data file (a jsonlines)."
+        })
+    validation_file_classify: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "An optional input evaluation data file to evaluate the metrics (sacreblue) on "
+            "a jsonlines file."
+        },
+    )
+    test_file_classify: Optional[str] = field(
         default=None,
         metadata={
             "help": "An optional input test data file to evaluate the metrics (sacreblue) on " "a jsonlines file."
@@ -160,6 +198,27 @@ class DataTrainingArguments:
             "value if set."
         },
     )
+    max_train_classify_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of training examples to this "
+            "value if set."
+        },
+    )
+    max_eval_classify_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of evaluation examples to this "
+            "value if set."
+        },
+    )
+    max_predict_classify_samples: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "For debugging purposes or quicker training, truncate the number of prediction examples to this "
+            "value if set."
+        },
+    )
     num_beams: Optional[int] = field(
         default=1,
         metadata={
@@ -194,12 +253,6 @@ class DataTrainingArguments:
         },
     )
 
-    #attr_names: List = field(
-     #   default_factory=lambda: ['cmi'],
-    #  metadata={
-     #       "help": "Column names of the attributes to control for"
-      #  },
-  #  )
 
     def __post_init__(self):
         if self.train_file is None and self.validation_file is None:
@@ -208,6 +261,7 @@ class DataTrainingArguments:
             raise ValueError("Need to specify the source language and the target language.")
         if self.val_max_target_length is None:
             self.val_max_target_length = self.max_target_length
+
 
 
 def main():
@@ -262,7 +316,6 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
-
     #Load model for style conditional generation.
     logging.info(f"Loading available weights from : {model_args.model_name_or_path}")
     tokenizer = T5Tokenizer.from_pretrained(
@@ -272,6 +325,7 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
     model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path, num_attr=data_args.num_attr)
+    classification_model = ClassifierModel(model.style_vector, data_args.num_attr, 512) ##TODO: remove hardcoding
     model.resize_token_embeddings(len(tokenizer))
 
     # Set decoder_start_token_id
@@ -290,95 +344,241 @@ def main():
             f"`{model.__class__.__name__}`. This will lead to loss being calculated twice and will take up more memory"
         )
 
-    raw_datasets = pd.load_data(data_args, model_args)
-    # print(raw_datasets["train"])
+    raw_datasets_generate, raw_datasets_classify = pd.load_data(data_args, model_args)
 
     if training_args.do_train:
-        train_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer)
-        # print(train_dataset)
-
+        train_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer)
+        
     if training_args.do_eval:      
-        eval_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='validation')
-        print(eval_dataset)
-
+        eval_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='validation')
+        
     if training_args.do_predict:
-        predict_dataset = pd.create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='test')
-
+        predict_dataset_generate = pd.create_dataset(raw_datasets_generate, data_args, training_args, tokenizer, mode='test')
+    
     # Data collator
-    data_collator = pd.create_collator(data_args, training_args, tokenizer, model)
+    data_collator_generate = pd.create_collator_generate(data_args, training_args, tokenizer, model)
+
+    train_dataloader_generate = DataLoader(
+        train_dataset_generate, shuffle=True, collate_fn=data_collator_generate, batch_size=training_args.per_device_train_batch_size
+    )
+    eval_dataloader_generate = DataLoader(eval_dataset_generate, collate_fn=data_collator_generate, batch_size=training_args.per_device_eval_batch_size)
 
 
-    # Initialize our Trainer
-    trainer = CustomSeq2SeqTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-        compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args) if training_args.predict_with_generate else None,
+    decay_parameters = get_parameter_names(model, [nn.LayerNorm])
+    decay_parameters = [name for name in decay_parameters if "bias" not in name]
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in model.named_parameters() if n in decay_parameters],
+            "weight_decay": training_args.weight_decay,
+        },
+        {
+            "params": [p for n, p in model.named_parameters() if n not in decay_parameters],
+            "weight_decay": 0.0,
+        },
+    ]
+    optimizer_generate = Adafactor(optimizer_grouped_parameters, lr=training_args.learning_rate, scale_parameter=False, relative_step=False)
+
+    num_update_steps_per_epoch = math.ceil(len(train_dataloader_generate) / training_args.gradient_accumulation_steps)
+    training_args.max_train_steps = int(training_args.num_train_epochs * num_update_steps_per_epoch)
+    lr_scheduler_generate = get_scheduler(
+        name=training_args.lr_scheduler_type,
+        optimizer=optimizer_generate,
+        num_warmup_steps=training_args.warmup_steps,
+        num_training_steps=training_args.max_train_steps,
     )
 
-    # Training
-    if training_args.do_train:
-        checkpoint = None
-        if training_args.resume_from_checkpoint is not None:
-            checkpoint = training_args.resume_from_checkpoint
-        elif last_checkpoint is not None:
-            checkpoint = last_checkpoint
-        train_result = trainer.train(resume_from_checkpoint=checkpoint)
-        trainer.save_model()  # Saves the tokenizer too for easy upload
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(device)
+    
 
-        metrics = train_result.metrics
-        max_train_samples = (
-            data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
+    if model_args.use_classification_obj:
+        train_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer)
+        eval_dataset_classify = pd.create_dataset_classify(raw_datasets_classify, data_args, training_args, tokenizer, mode='validation')
+        data_collator_classify = pd.create_collator_classify(tokenizer, training_args)
+
+        train_dataloader_classify = DataLoader(
+        train_dataset_classify, shuffle=True, collate_fn=data_collator_classify, batch_size=training_args.per_device_train_batch_size)
+        eval_dataloader_classify = DataLoader(eval_dataset_classify, collate_fn=data_collator_classify, batch_size=training_args.per_device_eval_batch_size)
+
+        optimizer_classify = AdamW([p for _, p in classification_model.named_parameters()], lr=training_args.learning_rate)
+        criterion = nn.BCEWithLogitsLoss()
+        classification_model.to(device)
+        criterion.to(device)
+
+    total_batch_size = training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps
+
+    logger.info("***** Running training *****")
+    logger.info(f"  Num examples = {len(train_dataset_generate)}")
+    logger.info(f"  Num Epochs = {training_args.num_train_epochs}")
+    logger.info(f"  Instantaneous batch size per device = {training_args.per_device_train_batch_size}")
+    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(f"  Gradient Accumulation steps = {training_args.gradient_accumulation_steps}")
+    logger.info(f"  Total optimization steps = {training_args.max_train_steps}")
+
+
+    progress_bar = tqdm(range(training_args.max_train_steps))
+    completed_steps = 0
+    starting_epoch = 0
+
+    metric_for_best_model = 'eval_'+training_args.metric_for_best_model
+    best_checkpoint_so_far = None
+    best_metric_so_far = -1
+
+    accuracy = load_metric("accuracy")
+    writer = SummaryWriter(f"{training_args.output_dir}/runs")
+    for epoch in range(starting_epoch, int(training_args.num_train_epochs)):
+        epoch_loss_generate = 0
+        epoch_loss_classify = 0
+        
+        for step, batch in enumerate(train_dataloader_generate):
+            for k, v in batch.items():
+                batch[k] = v.to(device)
+
+            model.train()
+ 
+            outputs = model(**batch)
+            gen_loss = outputs.loss
+            epoch_loss_generate += gen_loss.detach().float()
+            gen_loss = gen_loss / training_args.gradient_accumulation_steps
+            gen_loss.backward()
+            if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_generate) - 1:
+                optimizer_generate.step()
+                lr_scheduler_generate.step()
+                optimizer_generate.zero_grad()
+                progress_bar.update(1)
+                completed_steps += 1
+
+            # set model to eval mode before getting encoder embeddings
+            if model_args.use_classification_obj:
+                classification_model.train()
+                model.eval()
+                try:
+                    batch_classify = next(dataloader_classify_iterator)
+                except:
+                    dataloader_classify_iterator = iter(train_dataloader_classify)
+                    batch_classify = next(dataloader_classify_iterator)
+                for k, v in batch_classify.items():
+                    batch_classify[k] = v.to(device)
+                with torch.no_grad():
+                    encoder_outputs = model.encoder(
+                        input_ids=batch_classify['input_ids'],
+                        attention_mask=batch_classify['attention_mask'],
+                        return_dict=True
+                    )
+                    hidden_states = encoder_outputs.last_hidden_state
+                    hidden_states = torch.mean(hidden_states * batch_classify["attention_mask"].unsqueeze(-1), axis=1).squeeze()
+                
+                outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
+                classifier_loss = criterion(outputs.squeeze(), batch_classify["labels"])
+                epoch_loss_classify += classifier_loss.detach().float()
+                classifier_loss = classifier_loss / training_args.gradient_accumulation_steps
+                classifier_loss.backward()
+                if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
+                    optimizer_classify.step()
+                    optimizer_classify.zero_grad()
+
+
+            #checkpointing, logging and evaluation
+            if (completed_steps % training_args.eval_steps == 0):
+                # will evaluate both models
+                model.eval()
+                classification_model.eval()
+                logger.info(f"*** Evaluate ***")
+
+                if model_args.use_classification_obj:
+                    # evaluate classifier
+                    for step, batch_eval in enumerate(eval_dataloader_classify):
+                        for k, v in batch_eval.items():
+                            batch_eval[k] = v.to(device)
+                        encoder_outputs = model.encoder(
+                                input_ids=batch_eval['input_ids'],
+                                attention_mask=batch_eval['attention_mask'],
+                                return_dict=True
+                            )
+                        hidden_states = encoder_outputs.last_hidden_state
+                        hidden_states = torch.mean(hidden_states * batch_eval["attention_mask"].unsqueeze(-1), axis=1).squeeze()
+                        predictions = torch.sigmoid(classification_model(hidden_states, batch_eval['input_style_scores'])).round().detach().cpu().numpy()
+                        accuracy.add_batch(predictions=predictions, references=batch_eval["labels"].cpu())
+                    eval_acc = accuracy.compute()
+                    writer.add_scalar("binary-acc/eval", eval_acc["accuracy"], completed_steps)
+                    logger.info(f"Classifier accuracy at step {completed_steps} : {eval_acc}")
+
+                #evaluate model
+                trainer = CustomSeq2SeqTrainer(
+                            model=model,
+                            args=training_args,
+                            eval_dataset=eval_dataset_generate,
+                            tokenizer=tokenizer,
+                            data_collator=data_collator_generate,
+                            compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args)
+                        )
+                metrics = trainer.evaluate()
+                trainer.log_metrics("eval", metrics)
+                trainer.save_metrics("eval", metrics)
+
+                for k, v in metrics.items():
+                    writer.add_scalar(f"{k}/eval", v, completed_steps)
+
+                # save checkpoint
+                output_dir = f"checkpoint-{completed_steps}"
+                logger.info(f"Saving checkpoint to {output_dir}")
+                if training_args.output_dir is not None:
+                    output_dir = os.path.join(training_args.output_dir, output_dir)
+                    model.save_pretrained(output_dir, state_dict=model.state_dict())
+
+                #keep track of best model so far, assume greater is better. Will not work for loss.
+                if metrics[metric_for_best_model] > best_metric_so_far:
+                    best_metric_so_far = metrics[metric_for_best_model]
+                    best_checkpoint_so_far = completed_steps
+                logger.info(f"Best checkpoint so far : checkpoint-{best_checkpoint_so_far}")
+
+        #record training loss per epoch
+        writer.flush()
+
+        result = dict()
+        result["epoch_loss_generate"] = epoch_loss_generate
+        result["epoch_loss_classify"] = epoch_loss_classify
+        result["epoch"] = epoch
+        result["step"] = completed_steps
+        logger.info(result)
+            
+
+    logger.info("Training complete")
+    writer.close()
+    best_model_dir = os.path.join(training_args.output_dir, f"checkpoint-{best_checkpoint_so_far}")
+    model = MT5ForStyleConditionalGeneration.from_pretrained(best_model_dir, num_attr=data_args.num_attr)
+    trainer = CustomSeq2SeqTrainer(
+                        model=model,
+                        args=training_args,
+                        eval_dataset=eval_dataset_generate,
+                        tokenizer=tokenizer,
+                        data_collator=data_collator_generate,
+                        compute_metrics=lambda x:mt.compute_metrics(x, tokenizer, data_args),
+                        )
+    logger.info(f"*** Predict ***")
+    predict_results = trainer.predict(
+        predict_dataset_generate,
+        metric_key_prefix="predict",
+        max_length=data_args.max_target_length,
+        num_beams=data_args.num_beams,
         )
-        metrics["train_samples"] = min(max_train_samples, len(train_dataset))
+    metrics = predict_results.metrics
+    max_predict_samples = len(predict_dataset_generate)
 
-        trainer.log_metrics("train", metrics)
-        trainer.save_metrics("train", metrics)
-        trainer.save_state()
+    metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset_generate))
+    trainer.log_metrics("predict", metrics)
+    trainer.save_metrics("predict", metrics)
 
-    # Evaluation
-    results = {}
-    if training_args.do_eval:
-        logger.info("*** Evaluate ***")
-
-        metrics = trainer.evaluate()
-        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
-        metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
-
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
-
-    if training_args.do_predict:
-        logger.info("*** Predict ***")
-
-        predict_results = trainer.predict(
-            predict_dataset,
-            metric_key_prefix="predict",
+    if training_args.predict_with_generate:
+        predictions = tokenizer.batch_decode(
+            predict_results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
         )
-        metrics = predict_results.metrics
-        max_predict_samples = (
-            data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
-        )
-        metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset))
+        predictions = [pred.strip() for pred in predictions]
+        output_prediction_file = os.path.join(training_args.output_dir, "generated_predictions.txt")
+        with open(output_prediction_file, "w", encoding="utf-8") as writer:
+            writer.write("\n".join(predictions))
 
-        trainer.log_metrics("predict", metrics)
-        trainer.save_metrics("predict", metrics)
-
-        if trainer.is_world_process_zero():
-            if training_args.predict_with_generate:
-                predictions = tokenizer.batch_decode(
-                    predict_results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
-                )
-                predictions = [pred.strip() for pred in predictions]
-                output_prediction_file = os.path.join(training_args.output_dir, "generated_predictions.txt")
-                with open(output_prediction_file, "w", encoding="utf-8") as writer:
-                    writer.write("\n".join(predictions))
-
-    return results
-
+    return
 
 if __name__ == "__main__":
     main()
