@@ -1,7 +1,7 @@
 #!/bin/bash
 
 python main.py \
---do_train --do_eval \
+--do_train --do_eval --do_predict \
 --source_lang='en' --target_lang='cm' \
 --output_dir='models/mt5_hd_ft_cmi_vector' \
 --per_device_train_batch_size=8 \
@@ -11,8 +11,11 @@ python main.py \
 --predict_with_generate \
 --train_file='/home/shreyapathak9515/controllable_codemixing/cm_data/cmi_control_train_vector.tsv' \
 --validation_file='/home/shreyapathak9515/controllable_codemixing/cm_data/cmi_control_dev_vector.tsv' \
+--test_file='' \
+--train_file_classify='' \
+--validation_file_classify='' \
 --load_best_model_at_end \
---metric_for_best_model='loss' \
+--metric_for_best_model='cmi_bleu_hm' \
 --num_train_epochs=10.0 \
 --learning_rate=5e-4 \
 --eval_steps=1000 \

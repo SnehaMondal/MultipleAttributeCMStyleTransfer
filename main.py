@@ -90,8 +90,11 @@ class ModelArguments:
             "with private models)."
         },
     )
-    with_tracking: bool = field(
+    use_classification_obj: bool = field(
         default=False,
+        metadata={
+            "help": "Whether to use the classification objective"
+        },
     )
 
 
@@ -419,7 +422,7 @@ def main():
     best_metric_so_far = -1
 
     accuracy = load_metric("accuracy")
-    writer = SummaryWriter()
+    writer = SummaryWriter(f"{training_args.output_dir}/runs")
     for epoch in range(starting_epoch, int(training_args.num_train_epochs)):
         if model_args.with_tracking:
             epoch_loss_generate = 0
@@ -430,7 +433,6 @@ def main():
                 batch[k] = v.to(device)
 
             model.train()
-            # classification_model.train()
  
             outputs = model(**batch)
             gen_loss = outputs.loss
@@ -446,32 +448,34 @@ def main():
                 completed_steps += 1
 
             # set model to eval mode before getting encoder embeddings
-            # model.eval()
-            # try:
-            #     batch_classify = next(dataloader_classify_iterator)
-            # except:
-            #     dataloader_classify_iterator = iter(train_dataloader_classify)
-            #     batch_classify = next(dataloader_classify_iterator)
-            # for k, v in batch_classify.items():
-            #     batch_classify[k] = v.to(device)
-            # with torch.no_grad():
-            #     encoder_outputs = model.encoder(
-            #         input_ids=batch_classify['input_ids'],
-            #         attention_mask=batch_classify['attention_mask'],
-            #         return_dict=True
-            #     )
-            #     hidden_states = encoder_outputs.last_hidden_state
-            #     hidden_states = torch.mean(hidden_states * batch_classify["attention_mask"].unsqueeze(-1), axis=1).squeeze()
-            
-            # outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
-            # classifier_loss = criterion(outputs.squeeze(), batch_classify["labels"])
-            # if model_args.with_tracking:
-            #     epoch_loss_classify += classifier_loss.detach().float()
-            # classifier_loss = classifier_loss / training_args.gradient_accumulation_steps
-            # classifier_loss.backward()
-            # if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
-            #     optimizer_classify.step()
-            #     optimizer_classify.zero_grad()
+            if model_args.use_classification_obj:
+                classification_model.train()
+                model.eval()
+                try:
+                    batch_classify = next(dataloader_classify_iterator)
+                except:
+                    dataloader_classify_iterator = iter(train_dataloader_classify)
+                    batch_classify = next(dataloader_classify_iterator)
+                for k, v in batch_classify.items():
+                    batch_classify[k] = v.to(device)
+                with torch.no_grad():
+                    encoder_outputs = model.encoder(
+                        input_ids=batch_classify['input_ids'],
+                        attention_mask=batch_classify['attention_mask'],
+                        return_dict=True
+                    )
+                    hidden_states = encoder_outputs.last_hidden_state
+                    hidden_states = torch.mean(hidden_states * batch_classify["attention_mask"].unsqueeze(-1), axis=1).squeeze()
+                
+                outputs = classification_model(hidden_states, batch_classify['input_style_scores'])
+                classifier_loss = criterion(outputs.squeeze(), batch_classify["labels"])
+                if model_args.with_tracking:
+                    epoch_loss_classify += classifier_loss.detach().float()
+                classifier_loss = classifier_loss / training_args.gradient_accumulation_steps
+                classifier_loss.backward()
+                if step % training_args.gradient_accumulation_steps == 0 or step == len(train_dataloader_classify) - 1:
+                    optimizer_classify.step()
+                    optimizer_classify.zero_grad()
 
 
             #checkpointing, logging and evaluation
@@ -481,22 +485,23 @@ def main():
                 classification_model.eval()
                 logger.info(f"*** Evaluate ***")
 
-                # # evaluate classifier
-                # for step, batch_eval in enumerate(eval_dataloader_classify):
-                #     for k, v in batch_eval.items():
-                #         batch_eval[k] = v.to(device)
-                #     encoder_outputs = model.encoder(
-                #             input_ids=batch_eval['input_ids'],
-                #             attention_mask=batch_eval['attention_mask'],
-                #             return_dict=True
-                #         )
-                #     hidden_states = encoder_outputs.last_hidden_state
-                #     hidden_states = torch.mean(hidden_states * batch_eval["attention_mask"].unsqueeze(-1), axis=1).squeeze()
-                #     predictions = torch.sigmoid(classification_model(hidden_states, batch_eval['input_style_scores'])).round().detach().cpu().numpy()
-                #     accuracy.add_batch(predictions=predictions, references=batch_eval["labels"].cpu())
-                # eval_acc = accuracy.compute()
-                # writer.add_scalar("binary-acc/eval", eval_acc["accuracy"], completed_steps)
-                # logger.info(f"Classifier accuracy at step {completed_steps} : {eval_acc}")
+                if model_args.use_classification_obj:
+                    # evaluate classifier
+                    for step, batch_eval in enumerate(eval_dataloader_classify):
+                        for k, v in batch_eval.items():
+                            batch_eval[k] = v.to(device)
+                        encoder_outputs = model.encoder(
+                                input_ids=batch_eval['input_ids'],
+                                attention_mask=batch_eval['attention_mask'],
+                                return_dict=True
+                            )
+                        hidden_states = encoder_outputs.last_hidden_state
+                        hidden_states = torch.mean(hidden_states * batch_eval["attention_mask"].unsqueeze(-1), axis=1).squeeze()
+                        predictions = torch.sigmoid(classification_model(hidden_states, batch_eval['input_style_scores'])).round().detach().cpu().numpy()
+                        accuracy.add_batch(predictions=predictions, references=batch_eval["labels"].cpu())
+                    eval_acc = accuracy.compute()
+                    writer.add_scalar("binary-acc/eval", eval_acc["accuracy"], completed_steps)
+                    logger.info(f"Classifier accuracy at step {completed_steps} : {eval_acc}")
 
                 #evaluate model
                 trainer = CustomSeq2SeqTrainer(
