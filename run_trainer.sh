@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python main.py \
+python main_trainer.py \
 --do_train --do_eval \
 --source_lang='en' --target_lang='cm' \
 --output_dir='models/mt5_hd_ft_cmi_vector_new' \
