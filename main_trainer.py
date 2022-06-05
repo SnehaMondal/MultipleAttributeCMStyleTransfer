@@ -76,6 +76,16 @@ class ModelArguments:
         },
     )
     use_classification_obj: bool = field(default=False)
+    warm_start: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether the style vector will have a warm start initialization"
+        },
+    )
+    warm_start_model: Optional[str] = field(
+        default="models/mt5_cmi_vec/checkpoint-24000",
+        metadata={"help": "Path to pretrained model whose style vector is borrowed."}
+    )
 
 
 @dataclass
@@ -275,6 +285,21 @@ def main():
     model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.model_name_or_path, num_attr=data_args.num_attr)
     model.resize_token_embeddings(len(tokenizer))
 
+    if model_args.warm_start:
+        warm_start_model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.warm_start_model, num_attr=data_args.num_attr)
+        warm_start_model.eval()
+        model.style_vector = warm_start_model.style_vector
+        logger.info("Initialized with warm start")
+
+    logger.info("Freeze everything except last 2 decoder layers")
+    for name, param in model.named_parameters():
+        if name.startswith("decoder.block.6") or name.startswith("decoder.block.7") or name=="decoder.final_layer_norm.weight" or \
+            name=="style_vector" or \
+            name.startswith("lm"):
+            logger.info(f"Will train {name}")
+        else:
+            param.requires_grad = False
+    logger.info("All except last 2 decoder weights are frozen.")
     # Set decoder_start_token_id
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
