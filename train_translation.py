@@ -330,7 +330,7 @@ def main():
         for inp, tar, task in zip(examples[source_lang], examples[target_lang], examples["task"]):
             if task == "cm":
                 inputs.append(cm_prefix + str(inp).strip())
-                outputs.append(str(tar).strip())
+                targets.append(str(tar).strip())
             elif task == "trans":
                 inputs.append(en_hi_prefix + str(inp).strip())
                 targets.append(tar)
