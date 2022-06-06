@@ -293,7 +293,7 @@ def main():
 
     logger.info("Freeze everything except last 2 decoder layers")
     for name, param in model.named_parameters():
-        if name.startswith("decoder.block.6") or name.startswith("decoder.block.7") or name=="decoder.final_layer_norm.weight" or \
+        if name.startswith("decoder.block.7") or name=="decoder.final_layer_norm.weight" or \
             name=="style_vector" or \
             name.startswith("lm"):
             logger.info(f"Will train {name}")
