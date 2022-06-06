@@ -1,5 +1,5 @@
 #!/bin/bash
-for train_set_size in 10 20 30 40 50 60 70 80 90 100
+for train_set_size in 50 60 70 80 90 100
 do
 	if [[ $train_set_size -lt 50 ]]
 	then
@@ -7,7 +7,7 @@ do
 		steps=200
 	else
 		num_train_epochs=20.0
-		steps=500
+		steps=200
 	fi
 
 	train_samples=$((train_set_size*21422/100))
@@ -16,7 +16,7 @@ do
 	--do_train --do_eval --do_predict \
 	--source_lang='en' --target_lang='cm' \
 	--model_name_or_path='models/mt5_cmgen' \
-	--output_dir="models/few_shot/warm_start_mt5_cmi_vector/train_${train_set_size}" \
+	--output_dir="models/few_shot/decoder_last/warm_start_mt5_cmi_vector/train_${train_set_size}" \
 	--per_device_train_batch_size=8 \
 	--per_device_eval_batch_size=8 \
 	--gradient_accumulation_steps=2 \
