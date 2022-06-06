@@ -14,7 +14,7 @@ import pprint
 # from model import MT5ForStyleConditionalGeneration
 import metrics as mt
 
-effective_vocab_size = 200
+effective_vocab_size = 64
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_filename', type=str, required=True)
@@ -80,7 +80,6 @@ def fudge_beam_search(
 	input_ids,
 	beam_scorer,
 	condition_lambda,
-	# input_cmi_scores=None,
 	logits_processor = None,
 	stopping_criteria = None,
 	max_length = None,
@@ -126,8 +125,6 @@ def fudge_beam_search(
 
 	this_peer_finished = False  # used by synced_gpus only
 	while True:
-
-		# model_inputs = model.prepare_inputs_for_generation(input_ids=input_ids, input_cmi_scores=input_cmi_scores, **model_kwargs)
 		model_inputs = model.prepare_inputs_for_generation(input_ids=input_ids, **model_kwargs)
 
 		outputs = model(
@@ -238,42 +235,37 @@ def fudge_beam_search(
 	return sequence_outputs["sequences"]
 
 def beam_search(sentence,
-				# cmi_score,
 				condition_lambda, num_beams):
 	with torch.no_grad():        
 		encoder_input_ids = t5_tokenizer([sentence], return_tensors="pt").input_ids.to(device)
 		input_ids = torch.ones((num_beams, 1), device=model.device, dtype=torch.long)
 		input_ids = input_ids * model.config.decoder_start_token_id
-		# input_cmi_scores = torch.tensor([cmi_score], dtype=torch.float32, device=model.device)
 		model_kwargs = {"encoder_outputs": model.get_encoder()(encoder_input_ids.repeat_interleave(num_beams, dim=0), return_dict=True)}
 		beam_scorer = BeamSearchScorer(batch_size=1, num_beams=num_beams, device=model.device)
 		stopping_criteria=StoppingCriteriaList([MaxLengthCriteria(max_length=512)])
-		# outputs = fudge_beam_search(input_ids=input_ids, input_cmi_scores=input_cmi_scores, beam_scorer=beam_scorer, stopping_criteria=stopping_criteria, condition_lambda=condition_lambda, **model_kwargs)
 		outputs = fudge_beam_search(input_ids=input_ids, beam_scorer=beam_scorer, stopping_criteria=stopping_criteria, condition_lambda=condition_lambda, **model_kwargs)
 		return [t5_tokenizer.decode(t, skip_special_tokens=True).strip() for t in outputs]
 
 
 input_texts = []
 references = []
-# cmi_scores = []
+datasets = []
 task_prefix = "to_cm "
 with open(args.input_filename, "r") as f:
-	for line in f.readlines()[:100]:
+	for line in f.readlines():
 		components = line.strip().split('\t')
 		input_texts.append(task_prefix + components[0])
-		# references.append(components[1])
-		# cmi_scores.append(float(components[2]))
-# assert len(references) == len(input_texts)
+		references.append(components[1])
+		datasets.append(components[2])
 
 
 bleu_dict={}
-for cl in [1.0, 2.0, 3.0]:
+for cl in [2.0, 3.0]:
 	print(f"Running beam search with cl : {cl}", flush=True)
-	output_file = f"{args.output_directory}/{args.predictor_name}/logit_treebank_to_formal_fudge_{cl}.tsv"
+	output_file = f"{args.output_directory}/{args.predictor_name}/test_lambda_{cl}_informal.tsv"
 	predictions = []
 	st_time = time.time()
 	for i in range(len(input_texts)):
-		# prediction = beam_search(input_texts[i], cmi_scores[i], condition_lambda=cl, num_beams=args.beam_width)
 		prediction = beam_search(input_texts[i], condition_lambda=cl, num_beams=args.beam_width)
 		predictions.append(prediction[0])
 		print(f"Evaluated input {i}", flush=True)
@@ -282,8 +274,8 @@ for cl in [1.0, 2.0, 3.0]:
 	
 	with open(output_file, "w") as f:
 		print(f"Writing predictions to : {output_file}")
-		for input_text, prediction in zip(input_texts, predictions):
-			f.write(";".join([input_text, prediction]))
+		for input_text, prediction, ds in zip(input_texts, predictions, datasets):
+			f.write("\t".join([input_text, prediction, ds]))
 			f.write("\n")
 			
 	# bleu = mt.bleu(targets=references, predictions=predictions)
