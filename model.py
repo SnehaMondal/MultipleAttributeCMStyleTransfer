@@ -11,6 +11,7 @@ import numpy as np
 from torch import nn
 import warnings
 from torch.nn import CrossEntropyLoss
+torch.manual_seed(0)
 
 __HEAD_MASK_WARNING_MSG = """
 The input argument `head_mask` was split into two arguments `head_mask` and `decoder_head_mask`. Currently,

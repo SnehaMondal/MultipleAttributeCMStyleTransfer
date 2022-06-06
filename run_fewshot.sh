@@ -17,6 +17,7 @@ do
 	--source_lang='en' --target_lang='cm' \
 	--model_name_or_path='models/mt5_cmgen' \
 	--output_dir="models/few_shot/decoder_last/warm_start_mt5_cmi_vector/train_${train_set_size}" \
+#	--output_dir="models/few_shot/decoder_last/cold_start_mt5_cmi_vector/train_${train_set_size}" \
 	--per_device_train_batch_size=8 \
 	--per_device_eval_batch_size=8 \
 	--gradient_accumulation_steps=2 \
@@ -40,6 +41,5 @@ do
 	--max_source_length=128 \
 	--max_target_length=128 \
 	--save_total_limit=1 \
-	--max_train_samples=${train_samples} \
-	--warm_start=True
+	--max_train_samples=${train_samples}
 done
