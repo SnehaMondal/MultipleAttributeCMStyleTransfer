@@ -276,7 +276,8 @@ def main():
             data_files["validation"] = data_args.validation_file
         if data_args.test_file is not None:
             data_files["test"] = data_args.test_file
-        raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t', cache_dir=model_args.cache_dir, column_names=[data_args.source_lang, data_args.target_lang],
+        raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t', cache_dir=model_args.cache_dir,\
+                                    column_names=[data_args.source_lang, data_args.target_lang, "task"],
                                     on_bad_lines='warn')
 
     # Set up config and tokenizer from open source model.
@@ -323,20 +324,27 @@ def main():
     def preprocess_function(examples):
         en_hi_prefix = "to_hi "
         hi_en_prefix = "to_en "
+        cm_prefix = "to_cm "
         inputs  = []
         targets = []
-        for inp, tar in zip(examples[source_lang], examples[target_lang]):
-            inputs.append(en_hi_prefix + str(inp).strip())
-            targets.append(tar)
-            inputs.append(hi_en_prefix + str(tar).strip())
-            targets.append(inp)
+        for inp, tar, task in zip(examples[source_lang], examples[target_lang], examples["task"]):
+            if task == "cm":
+                inputs.append(cm_prefix + str(inp).strip())
+                outputs.append(str(tar).strip())
+            elif task == "trans":
+                inputs.append(en_hi_prefix + str(inp).strip())
+                targets.append(tar)
+                inputs.append(hi_en_prefix + str(tar).strip())
+                targets.append(inp)
+            else:
+                logger.warning("ERROR!")
+        assert len(inputs) == len(targets)
 
         inputs_and_targets = [(inp, tar) for inp, tar in zip(inputs, targets) if inp!="" and tar!="" and inp is not None and tar is not None]
         random.shuffle(inputs_and_targets)
+
         inputs = [inp for (inp, _) in inputs_and_targets]
         targets = [tar for (_, tar) in inputs_and_targets]
-
-        assert len(inputs) == len(targets)
 
         model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
 
