@@ -288,12 +288,17 @@ def main():
     if model_args.warm_start:
         warm_start_model = MT5ForStyleConditionalGeneration.from_pretrained(model_args.warm_start_model, num_attr=data_args.num_attr)
         warm_start_model.eval()
-        model.style_vector = warm_start_model.style_vector
+        state_dict = model.state_dict()
+        assert 'style_vector' in state_dict
+        state_dict['style_vector'] = warm_start_model.style_vector
+        model.load_state_dict(state_dict)
+        del warm_start_model
+        # model.style_vector = warm_start_model.style_vector
         logger.info("Initialized with warm start")
 
     logger.info("Freeze everything except last 2 decoder layers")
     for name, param in model.named_parameters():
-        if name.startswith("decoder.block.6") or name.startswith("decoder.block.7") or name=="decoder.final_layer_norm.weight" or \
+        if name.startswith("decoder.block.7") or name=="decoder.final_layer_norm.weight" or \
             name=="style_vector" or \
             name.startswith("lm"):
             logger.info(f"Will train {name}")
