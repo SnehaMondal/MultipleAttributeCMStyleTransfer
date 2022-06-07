@@ -17,6 +17,6 @@ cmi_cutoffs = {}
 for k in range(2,8):
 	cmi_cutoffs[k]=[]
 	for i in range(1,k):
-		cmi_cutoffs[k].append(np.percentile(data,i*100/k))
+		cmi_cutoffs[k].append(np.round(np.percentile(data,i*100/k),3))
 
 pickle.dump(cmi_cutoffs,open("cmi_cutoffs_dict.pkl",'wb'))
