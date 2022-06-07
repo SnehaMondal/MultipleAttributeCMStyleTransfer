@@ -3,6 +3,7 @@ from datasets import load_metric
 from statistics import harmonic_mean
 from spi import spi_bucket_accuracy, spi_correlation
 from cmi import cmi_bucket_accuracy, cmi_correlation
+from cmi import get_cmi_bucket_tag, holdout_cmi_results
 import sacrebleu
 import pickle
 
@@ -60,6 +61,18 @@ def compute_metrics(eval_preds, tokenizer, data_args):
     result["cmi_corr"] = cmi_corr["cmi_correlation"]
     
     result["cmi_bleu_hm"] = harmonic_mean([result["cmi_acc"]*100,result["bleu"]])
+
+    holdout_instances = [(target, prediction) for target, prediction in zip(decoded_labels, decoded_preds) if get_cmi_bucket_tag(target)==data_args.holdout_bucket]
+    holdout_targets = [v[0] for v in holdout_instances]
+    holdout_predictions = [v[1] for v in holdout_instances]
+
+    result["holdout_bleu"] = bleu(holdout_targets, holdout_predictions)["bleu"]
+    
+    holdout_cmi = cmi_bucket_accuracy(holdout_targets, holdout_predictions, cmi_cutoffs)
+    result["holdout_cmi_acc"] = holdout_cmi["cmi_accuracy"]
+
+    holdout_cmi_corr = cmi_correlation(holdout_targets, holdout_predictions)
+    result["holdout_cmi_corr"] = holdout_cmi_corr["cmi_correlation"]
 
     spi_acc = spi_bucket_accuracy(decoded_labels, decoded_preds)
     result["spi_acc"] = spi_acc["spi_bucket_accuracy"]

@@ -2,6 +2,7 @@ import datasets
 from datasets import load_dataset
 from transformers import default_data_collator, DataCollatorForSeq2Seq, DataCollatorWithPadding
 import torch
+from cmi import get_cmi_bucket_tag
 
 prefix = "to_cm "
 
@@ -128,6 +129,9 @@ def create_dataset(raw_datasets, data_args, training_args, tokenizer, mode='trai
         train_dataset = raw_datasets["train"]
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
+        print("Total examples:", len(train_dataset))
+        train_dataset = train_dataset.filter(lambda example: get_cmi_bucket_tag(example[data_args.target_lang])!=data_args.holdout_bucket)
+        print("Filtered examples:", len(train_dataset))
         with training_args.main_process_first(desc="train dataset map pre-processing"):
             train_dataset = preprocess_function_generate(train_dataset, tokenizer, data_args)
         return train_dataset

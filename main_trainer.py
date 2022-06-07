@@ -194,6 +194,12 @@ class DataTrainingArguments:
             "help": "Space separated attribute names"
         },
     )
+    holdout_bucket: str = field(
+        default="cmi_1",
+        metadata={
+            "help": "CMI bucket to be held out while training"
+        },
+    )
 
     #attr_names: List = field(
      #   default_factory=lambda: ['cmi'],
