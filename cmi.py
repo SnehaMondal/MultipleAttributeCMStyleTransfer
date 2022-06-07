@@ -1,4 +1,6 @@
 import numpy as np
+import bisect
+
 def cmi(t):
     word_list = t.split()
     if len(word_list)==0:
@@ -11,29 +13,23 @@ def cmi(t):
         cmi = 1 - (max(en_words,len(word_list)-en_words)/len(word_list))
         return cmi
 
-CMI_CUTOFF_LO = 0.17
-CMI_CUTOFF_MID = 0.30
-
-def get_cmi_bucket_tag(s):
+def get_cmi_bucket_tag(s,cmi_cutoffs):
         cmi_score = cmi(s)
         if cmi_score==0:
-                cmi_bucket_tag = "cmi_zero"
-        elif cmi_score <= CMI_CUTOFF_LO:
-                cmi_bucket_tag = "cmi_lo"
-        elif cmi_score <= CMI_CUTOFF_MID:
-                cmi_bucket_tag = "cmi_mid"
+                cmi_bucket_tag = "cmi_0"
         else:
-                cmi_bucket_tag = "cmi_hi"
+        	cmi_bin=bisect.bisect_left(cmi_cutoffs,cmi_score)+1
+        	cmi_bucket_tag = "cmi_"+str(cmi_bin)
         return cmi_bucket_tag
 
-def get_cmi_bucket_accuracy(target,prediction):
-	cmi_bucket_prediction = get_cmi_bucket_tag(prediction)
-	cmi_bucket_target = get_cmi_bucket_tag(target)
+def get_cmi_bucket_accuracy(target,prediction,cmi_cutoffs):
+	cmi_bucket_prediction = get_cmi_bucket_tag(prediction,cmi_cutoffs)
+	cmi_bucket_target = get_cmi_bucket_tag(target,cmi_cutoffs)
 	return float(cmi_bucket_prediction == cmi_bucket_target)
 
-def cmi_bucket_accuracy(targets,predictions):
+def cmi_bucket_accuracy(targets,predictions,cmi_cutoffs):
 	total_accuracy = sum(
-			get_cmi_bucket_accuracy(target,prediction)
+			get_cmi_bucket_accuracy(target,prediction,cmi_cutoffs)
 			for target,prediction in zip(targets,predictions))
 	return {"cmi_bucket_accuracy":total_accuracy/len(predictions)}
 
