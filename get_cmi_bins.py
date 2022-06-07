@@ -14,7 +14,7 @@ for filename in os.listdir(directory):
 
 data = list(filter(lambda x: x!=0, data))
 cmi_cutoffs = {}
-for k in range(2,8):
+for k in range(2,9):
 	cmi_cutoffs[k]=[]
 	for i in range(1,k):
 		cmi_cutoffs[k].append(np.round(np.percentile(data,i*100/k),3))

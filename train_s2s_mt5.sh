@@ -1,5 +1,5 @@
 #!/bin/bash
-number_of_bins=3
+number_of_bins=$1
 python train_s2s_mt5.py \
 --do_train --do_eval --do_predict \
 --source_lang='en' --target_lang='cm' \
