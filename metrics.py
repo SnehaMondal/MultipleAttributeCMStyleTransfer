@@ -4,6 +4,7 @@ from statistics import harmonic_mean
 from spi import spi_bucket_accuracy, spi_correlation
 from cmi import cmi_bucket_accuracy, cmi_correlation
 import sacrebleu
+import pickle
 
 metric = load_metric("sacrebleu")
 
@@ -51,8 +52,8 @@ def compute_metrics(eval_preds, tokenizer, data_args):
     result = bleu(decoded_labels, decoded_preds)
 #    result = metric.compute(predictions=decoded_preds, references=decoded_labels)
     result = {"bleu": result["bleu"]}
-
-    cmi_acc = cmi_bucket_accuracy(decoded_labels, decoded_preds)
+    cmi_cutoffs = pickle.load(open(data_args.cmi_cutoffs_dict,'rb'))[data_args.number_of_cmi_bins]
+    cmi_acc = cmi_bucket_accuracy(decoded_labels, decoded_preds,cmi_cutoffs)
     result["cmi_acc"] = cmi_acc["cmi_bucket_accuracy"]
 
     cmi_corr = cmi_correlation(decoded_labels, decoded_preds)

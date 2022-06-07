@@ -193,6 +193,18 @@ class DataTrainingArguments:
             "needs to be the target language token.(Usually it is the target language token)"
         },
     )
+    number_of_cmi_bins: Optional[int] = field(
+        default=3,
+        metadata={
+            "help": "Number of cmi bins for tagged approach"
+        },
+    )
+    cmi_cutoffs_dict: Optional[str] = field(
+        default="cmi_cutoffs_dict.pkl",
+        metadata={
+            "help": "Provide path to the cmi_cutoffs dictionary"
+        },
+    )
 
     def __post_init__(self):
         if self.dataset_name is None and self.train_file is None and self.validation_file is None:

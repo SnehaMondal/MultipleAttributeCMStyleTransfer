@@ -1,20 +1,20 @@
 #!/bin/bash
-
+number_of_bins=3
 python train_s2s_mt5.py \
 --do_train --do_eval --do_predict \
 --source_lang='en' --target_lang='cm' \
 --model_name_or_path="google/mt5-small" \
---output_dir='models/mt5_cmgen' \
---per_device_train_batch_size=16 \
---per_device_eval_batch_size=16 \
---gradient_accumulation_steps=1 \
+--output_dir="models/mt5_tagged_${number_of_bins}_bins" \
+--per_device_train_batch_size=8 \
+--per_device_eval_batch_size=8 \
+--gradient_accumulation_steps=2 \
 --overwrite_output_dir=False \
 --predict_with_generate \
---train_file='data/raw_splits/hi_cm_train.tsv' \
---validation_file='data/raw_splits/hi_cm_valid.tsv' \
---test_file='data/raw_splits/hi_cm_test.tsv' \
+--train_file="cm_data/cmi_tag/hi_cm_train_${number_of_bins}_bins.tsv" \
+--validation_file="cm_data/cmi_tag/hi_cm_valid_${number_of_bins}_bins.tsv" \
+--test_file="cm_data/cmi_tag/hi_cm_test_${number_of_bins}_bins.tsv" \
 --load_best_model_at_end \
---metric_for_best_model='bleu' \
+--metric_for_best_model='cmi_bleu_hm' \
 --num_train_epochs=30.0 \
 --learning_rate=5e-4 \
 --eval_steps=1000 \
@@ -27,7 +27,9 @@ python train_s2s_mt5.py \
 --optim='adafactor' \
 --max_source_length=128 \
 --max_target_length=128 \
---save_total_limit=1
+--save_total_limit=1 \
+--number_of_cmi_bins=${number_of_bins} \
+--cmi_cutoffs_dict='cmi_cutoffs_dict.pkl'
 #### cpi, spi 
 
 # python main.py \
