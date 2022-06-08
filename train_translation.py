@@ -337,7 +337,7 @@ def main():
                 inputs.append(hi_en_prefix + str(tar).strip())
                 targets.append(inp)
             else:
-                logger.warning("ERROR!")
+                continue
         assert len(inputs) == len(targets)
 
         inputs_and_targets = [(inp, tar) for inp, tar in zip(inputs, targets) if inp!="" and tar!="" and inp is not None and tar is not None]
