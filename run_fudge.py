@@ -260,9 +260,9 @@ with open(args.input_filename, "r") as f:
 
 
 bleu_dict={}
-for cl in [2.0, 3.0]:
+for cl in [3.0]:
 	print(f"Running beam search with cl : {cl}", flush=True)
-	output_file = f"{args.output_directory}/{args.predictor_name}/test_lambda_{cl}_informal.tsv"
+	output_file = f"{args.output_directory}/{args.predictor_name}/test_lambda_{cl}.tsv"
 	predictions = []
 	st_time = time.time()
 	for i in range(len(input_texts)):
