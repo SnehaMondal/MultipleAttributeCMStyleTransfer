@@ -1,19 +1,19 @@
 #!/bin/bash
-
+holdout_bin=$1
 python main_trainer.py \
 --do_train --do_eval --do_predict \
 --source_lang='en' --target_lang='cm' \
---output_dir='models/mt5_spi_vec' \
+--output_dir="models/mt5_cmi_vec_holdout_${holdout_bin}" \
 --per_device_train_batch_size=16 \
 --per_device_eval_batch_size=16 \
 --gradient_accumulation_steps=2 \
 --overwrite_output_dir=False \
 --predict_with_generate \
---train_file='data/spi_vector/hi_cm_train.tsv' \
---validation_file='data/spi_vector/hi_cm_valid.tsv' \
---test_file='data/spi_vector/hi_cm_test.tsv' \
+--train_file='data/cmi_vector/hi_cm_train.tsv' \
+--validation_file='data/cmi_vector/hi_cm_valid.tsv' \
+--test_file='data/cmi_vector/hi_cm_test.tsv' \
 --load_best_model_at_end \
---metric_for_best_model='spi_bleu_hm' \
+--metric_for_best_model='cmi_bleu_hm' \
 --num_train_epochs=20.0 \
 --learning_rate=5e-4 \
 --eval_steps=1000 \
@@ -26,7 +26,9 @@ python main_trainer.py \
 --optim='adafactor' \
 --max_source_length=128 \
 --max_target_length=128 \
---save_total_limit=1
+--save_total_limit=1 \
+--cmi_cutoffs_dict="cmi_cutoffs_dict.pkl" \
+--holdout_bucket="${holdout_bin}"
 
 #### cpi, spi 
 

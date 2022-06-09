@@ -200,6 +200,12 @@ class DataTrainingArguments:
             "help": "CMI bucket to be held out while training"
         },
     )
+    cmi_cutoffs_dict: Optional[str] = field(
+        default="cmi_cutoffs_dict.pkl",
+        metadata={
+            "help": "Provide path to the cmi_cutoffs dictionary"
+        },
+    )
 
     #attr_names: List = field(
      #   default_factory=lambda: ['cmi'],

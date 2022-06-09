@@ -3,7 +3,7 @@ from datasets import load_metric
 from statistics import harmonic_mean
 from spi import spi_bucket_accuracy, spi_correlation
 from cmi import cmi_bucket_accuracy, cmi_correlation
-from cmi import get_cmi_bucket_tag, holdout_cmi_results
+from cmi import get_cmi_bucket_tag
 import sacrebleu
 import pickle
 
@@ -53,7 +53,7 @@ def compute_metrics(eval_preds, tokenizer, data_args):
     result = bleu(decoded_labels, decoded_preds)
 #    result = metric.compute(predictions=decoded_preds, references=decoded_labels)
     result = {"bleu": result["bleu"]}
-    cmi_cutoffs = pickle.load(open(data_args.cmi_cutoffs_dict,'rb'))[data_args.number_of_cmi_bins]
+    cmi_cutoffs = pickle.load(open(data_args.cmi_cutoffs_dict,'rb'))[3]
     cmi_acc = cmi_bucket_accuracy(decoded_labels, decoded_preds,cmi_cutoffs)
     result["cmi_acc"] = cmi_acc["cmi_bucket_accuracy"]
 
@@ -62,14 +62,15 @@ def compute_metrics(eval_preds, tokenizer, data_args):
     
     result["cmi_bleu_hm"] = harmonic_mean([result["cmi_acc"]*100,result["bleu"]])
 
-    holdout_instances = [(target, prediction) for target, prediction in zip(decoded_labels, decoded_preds) if get_cmi_bucket_tag(target)==data_args.holdout_bucket]
+    holdout_instances = [(target, prediction) for target, prediction in zip(decoded_labels, decoded_preds) if get_cmi_bucket_tag(target, cmi_cutoffs)==data_args.holdout_bucket]
+    print(data_args.holdout_bucket, holdout_instances[0])
     holdout_targets = [v[0] for v in holdout_instances]
     holdout_predictions = [v[1] for v in holdout_instances]
 
     result["holdout_bleu"] = bleu(holdout_targets, holdout_predictions)["bleu"]
     
     holdout_cmi = cmi_bucket_accuracy(holdout_targets, holdout_predictions, cmi_cutoffs)
-    result["holdout_cmi_acc"] = holdout_cmi["cmi_accuracy"]
+    result["holdout_cmi_acc"] = holdout_cmi["cmi_bucket_accuracy"]
 
     holdout_cmi_corr = cmi_correlation(holdout_targets, holdout_predictions)
     result["holdout_cmi_corr"] = holdout_cmi_corr["cmi_correlation"]
