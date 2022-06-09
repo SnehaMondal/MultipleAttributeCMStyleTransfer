@@ -2,6 +2,8 @@ import datasets
 from datasets import load_dataset
 from transformers import default_data_collator, DataCollatorForSeq2Seq
 import torch
+import random
+random.seed(0)
 
 prefix = "to_cm "
 
@@ -24,7 +26,7 @@ def load_data(data_args, model_args):
         data_files["test"] = data_args.test_file
     raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t',
                                 cache_dir=model_args.cache_dir,
-                                column_names=[data_args.source_lang, data_args.target_lang]+data_args.attr_names)
+                                column_names=[data_args.source_lang, data_args.target_lang]+["task", "cmi"])
     return raw_datasets
 
 class CustomDataset(torch.utils.data.Dataset):
@@ -41,7 +43,7 @@ class CustomDataset(torch.utils.data.Dataset):
         input_ids = torch.tensor(self.inputs[index]).squeeze()
         attention_mask = torch.tensor(self.attention[index]).squeeze()
         target_ids = torch.tensor(self.targets[index]).squeeze()
-        style_scores = (self.style[index]).squeeze()
+        style_scores = self.style[index]
         
         return {"input_ids": input_ids, "labels": target_ids, "attention_mask":attention_mask, "input_style_scores":style_scores}
 
@@ -50,11 +52,42 @@ def preprocess_function(examples, tokenizer, data_args):
     max_target_length = data_args.max_target_length
     padding = "max_length" if data_args.pad_to_max_length else False
 
-    ### todo: what is the format of examples? fix accordingly
-    inputs = [str(source) for source in examples[data_args.source_lang]]
-    targets = [str(target) for target in examples[data_args.target_lang]]
-    style_scores = [[float(score) for score in examples[attr]] for attr in data_args.attr_names]
-    inputs = [prefix + inp for inp in inputs]
+    en_hi_prefix = "to_hi "
+    hi_en_prefix = "to_en "
+    cm_prefix = "to_cm "
+
+    inputs=[]
+    targets=[]
+    style_scores=[]
+
+    for inp, tar, task, score in zip(examples[data_args.source_lang], examples[data_args.target_lang], examples["task"], examples["cmi"]):
+        if task == "cm":
+            inputs.append(cm_prefix + str(inp).strip())
+            targets.append(str(tar).strip())
+            style_scores.append(float(score))
+        elif task == "trans":
+            inputs.append(en_hi_prefix + str(inp).strip())
+            targets.append(tar)
+            style_scores.append(0.0)
+
+            inputs.append(hi_en_prefix + str(tar).strip())
+            targets.append(inp)
+            style_scores.append(0.0)
+        else:
+            continue
+    assert len(inputs) == len(targets)
+    assert len(inputs) == len(style_scores)
+
+    inputs_and_targets = [(inp, tar, score) for\
+                        inp, tar, score in zip(inputs, targets, style_scores) if inp!="" and tar!="" and inp is not None and tar is not None]
+    random.shuffle(inputs_and_targets)
+
+    inputs = [inp for (inp, _, _) in inputs_and_targets]
+    targets = [tar for (_, tar, _) in inputs_and_targets]
+    style_scores = [[score for (_, _, score) in inputs_and_targets]]
+    assert len(style_scores) == 1
+    print(style_scores[0][0:10])
+    assert len(style_scores[0]) == len(inputs)
 
     model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
 
