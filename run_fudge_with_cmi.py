@@ -80,6 +80,7 @@ def fudge_beam_search(
 	input_ids,
 	beam_scorer,
 	condition_lambda,
+	input_cmi_scores=None,
 	logits_processor = None,
 	stopping_criteria = None,
 	max_length = None,
@@ -125,7 +126,7 @@ def fudge_beam_search(
 
 	this_peer_finished = False  # used by synced_gpus only
 	while True:
-		model_inputs = model.prepare_inputs_for_generation(input_ids=input_ids, **model_kwargs)
+		model_inputs = model.prepare_inputs_for_generation(input_ids=input_ids, input_cmi_scores=input_cmi_scores, **model_kwargs)
 
 		outputs = model(
 			**model_inputs,
@@ -235,6 +236,7 @@ def fudge_beam_search(
 	return sequence_outputs["sequences"]
 
 def beam_search(sentence,
+				cmi_score,
 				condition_lambda, num_beams):
 	with torch.no_grad():        
 		encoder_input_ids = t5_tokenizer([sentence], return_tensors="pt").input_ids.to(device)
@@ -250,6 +252,7 @@ def beam_search(sentence,
 input_texts = []
 references = []
 datasets = []
+cmi_scores = []
 task_prefix = "to_cm "
 with open(args.input_filename, "r") as f:
 	for line in f.readlines()[:5]:
@@ -257,6 +260,7 @@ with open(args.input_filename, "r") as f:
 		input_texts.append(task_prefix + components[0])
 		references.append(components[1])
 		datasets.append(components[2])
+		cmi_scores.append(components[3])
 
 
 bleu_dict={}
@@ -266,7 +270,7 @@ for cl in [2.0, 3.0]:
 	predictions = []
 	st_time = time.time()
 	for i in range(len(input_texts)):
-		prediction = beam_search(input_texts[i], condition_lambda=cl, num_beams=args.beam_width)
+		prediction = beam_search(input_texts[i], cmi_scores[i], condition_lambda=cl, num_beams=args.beam_width)
 		predictions.append(prediction[0])
 		print(f"Evaluated input {i}", flush=True)
 	total_time = time.time() - st_time
