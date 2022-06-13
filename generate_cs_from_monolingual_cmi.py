@@ -6,8 +6,9 @@ from transformers import T5Tokenizer
 from model import MT5ForStyleConditionalGeneration
 
 model_checkpoint="models/mt5_cmi_vec"
-input_filepath="data/OpenSubtitles/dummy_hi_cmi.tsv"
-output_filepath="data/OpenSubtitles/dummy_hi_cmi_cs.tsv"
+input_filepath="data/dataset_release/only_cmi_input.tsv"
+output_filepath="data/dataset_release/only_cmi_output.tsv"
+beam_width = 1
 
 print(f"Model name : {model_checkpoint}")
 tokenizer = T5Tokenizer.from_pretrained(model_checkpoint)
@@ -18,7 +19,6 @@ model.eval()
 model.to(device)
 
 batch_size = 64
-beam_width = 4
 fw_hi = open(output_filepath, "w")
 task_prefix = "to_cm "
 
@@ -48,7 +48,7 @@ with open(input_filepath) as fr:
             translated_batch = generate(batch, batch_cmi)
             for en, hi_list in zip(batch, translated_batch):
                 for hi in hi_list:
-                    fw_hi.write(hi + "\n")
+                    fw_hi.write(en + "\t" + hi + "\n")
                 i += 1
                 fw_hi.flush()
             batch = [" ".join(components[0:-1])]
@@ -60,11 +60,10 @@ with open(input_filepath) as fr:
                 print("Total number of sentences:", i, flush=True)
                 st_time = time.time()
     if len(batch) > 0:
-        print(batch)
         translated_batch = generate(batch, batch_cmi)
         for en, hi_list in zip(batch, translated_batch):
             for hi in hi_list:
-                fw_hi.write(hi + "\n")
+                fw_hi.write(en + "\t" + hi + "\n")
             i += 1
 fw_hi.close()
 
