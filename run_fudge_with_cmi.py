@@ -2,7 +2,7 @@ import time
 import torch
 import os
 
-from transformers import MT5ForConditionalGeneration, T5Tokenizer, T5Config, AutoTokenizer, XLMRobertaModelWithHeads, BeamSearchScorer, StoppingCriteriaList, MaxLengthCriteria, LogitsProcessorList, AdapterConfig
+from transformers import T5Tokenizer, T5Config, AutoTokenizer, XLMRobertaModelWithHeads, BeamSearchScorer, StoppingCriteriaList, MaxLengthCriteria, LogitsProcessorList, AdapterConfig
 import numpy as np
 from datasets import load_metric
 from torch import nn
@@ -11,7 +11,7 @@ import argparse
 import time
 import pprint
 
-# from model import MT5ForStyleConditionalGeneration
+from model import MT5ForStyleConditionalGeneration
 import metrics as mt
 
 effective_vocab_size = 64
@@ -42,7 +42,7 @@ metric = load_metric("sacrebleu")
 
 #load codemixed generation model
 t5_tokenizer = T5Tokenizer.from_pretrained(args.path_to_cmgen_model)
-model = MT5ForConditionalGeneration.from_pretrained(args.path_to_cmgen_model, return_dict=True).to(device)
+model = MT5ForStyleConditionalGeneration.from_pretrained(args.path_to_cmgen_model, num_attr=1, return_dict=True).to(device)
 model.eval()
 print(f"Loaded codemixed generation model from {args.path_to_cmgen_model}")
 
@@ -66,12 +66,15 @@ elif args.predictor_name == "base_hi":
 	gyafc_config = AdapterConfig.load("pfeiffer", non_linearity="relu", reduction_factor=16)
 	conditioning_model.load_adapter(path_to_base_gyafc, config=gyafc_config)
 	conditioning_model.set_active_adapters(Stack("hi", "gyafc"))
-else:
+elif args.predictor_name == "train_hi_dev_cs":
 	print("Trained predictor, Hi head")
 	path_to_predictor = "./models/formality_classifiers/train_hi_dev_cs/checkpoint-800"
 	conditioning_model.load_adapter(f"{path_to_predictor}/hi", load_as='hi')
 	conditioning_model.load_adapter(f"{path_to_predictor}/gyafc", load_as='gyafc')
 	conditioning_model.set_active_adapters(Stack("hi", "gyafc"))
+else:
+	print("Incorrect predictor. Exiting")
+	exit()
 
 conditioning_model.eval()
 conditioning_model.cuda()
@@ -126,7 +129,7 @@ def fudge_beam_search(
 
 	this_peer_finished = False  # used by synced_gpus only
 	while True:
-		model_inputs = model.prepare_inputs_for_generation(input_ids=input_ids, input_cmi_scores=input_cmi_scores, **model_kwargs)
+		model_inputs = model.prepare_inputs_for_generation(input_ids=input_ids, input_style_scores=input_cmi_scores, **model_kwargs)
 
 		outputs = model(
 			**model_inputs,
@@ -245,7 +248,10 @@ def beam_search(sentence,
 		model_kwargs = {"encoder_outputs": model.get_encoder()(encoder_input_ids.repeat_interleave(num_beams, dim=0), return_dict=True)}
 		beam_scorer = BeamSearchScorer(batch_size=1, num_beams=num_beams, device=model.device)
 		stopping_criteria=StoppingCriteriaList([MaxLengthCriteria(max_length=512)])
-		outputs = fudge_beam_search(input_ids=input_ids, beam_scorer=beam_scorer, stopping_criteria=stopping_criteria, condition_lambda=condition_lambda, **model_kwargs)
+		input_cmi_scores = torch.transpose(torch.tensor([[cmi_score]], dtype=torch.float32), 0, 1).to(model.device)
+		outputs = fudge_beam_search(input_ids=input_ids, input_cmi_scores=input_cmi_scores,
+									beam_scorer=beam_scorer, stopping_criteria=stopping_criteria,
+									condition_lambda=condition_lambda, **model_kwargs)
 		return [t5_tokenizer.decode(t, skip_special_tokens=True).strip() for t in outputs]
 
 
@@ -255,16 +261,16 @@ datasets = []
 cmi_scores = []
 task_prefix = "to_cm "
 with open(args.input_filename, "r") as f:
-	for line in f.readlines()[:5]:
+	for line in f.readlines():
 		components = line.strip().split('\t')
 		input_texts.append(task_prefix + components[0])
 		references.append(components[1])
 		datasets.append(components[2])
-		cmi_scores.append(components[3])
+		cmi_scores.append(float(components[3]))
 
 
 bleu_dict={}
-for cl in [2.0, 3.0]:
+for cl in [0.0, 3.0, 4.0]:
 	print(f"Running beam search with cl : {cl}", flush=True)
 	output_file = f"{args.output_directory}/{args.predictor_name}/test_lambda_{cl}.tsv"
 	predictions = []
