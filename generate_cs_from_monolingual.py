@@ -5,8 +5,8 @@ import os
 from transformers import MT5ForConditionalGeneration, T5Tokenizer
 
 model_checkpoint="models/mt5_trans_cmgen_multitask/checkpoint-178000"
-input_filepath="data/OpenSubtitles/OpenSubtitles.en-hi-thresholded.hi"
-output_filepath="data/OpenSubtitles/OpenSubtitles.cmgen.cs"
+input_filepath="data/OpenSubtitles/OpenSubtitles.en-hi-cleaned.hi"
+output_filepath="data/OpenSubtitles/OpenSubtitles.hi-cleaned.cmgen.cs"
 
 print(f"Model name : {model_checkpoint}")
 tokenizer = T5Tokenizer.from_pretrained(model_checkpoint)
@@ -25,7 +25,7 @@ def generate(sentences):
     batch_encoding = tokenizer(sentences, return_tensors="pt", padding=True)
     for k,v in batch_encoding.items():
         batch_encoding[k] = v.to(device)
-    outputs = model.generate(**batch_encoding, max_length=256, num_beams=beam_width, num_return_sequences=beam_width, return_dict_in_generate=True)
+    outputs = model.generate(**batch_encoding, max_length=128, num_beams=beam_width, num_return_sequences=beam_width, return_dict_in_generate=True)
     decoded_sentences = [tokenizer.decode(output, skip_special_tokens=True) for output in outputs['sequences']]
     return [decoded_sentences[i:i+beam_width] for i in range(0, len(decoded_sentences), beam_width)]
 
