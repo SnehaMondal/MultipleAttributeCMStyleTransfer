@@ -32,6 +32,7 @@ from transformers import (
     AutoConfig,
     AutoModelWithLMHead,
     AutoTokenizer,
+    BertTokenizer,
     BertForMaskedLM,
     DataCollatorForLanguageModeling,
     # DataCollatorForPermutationLanguageModeling,
@@ -206,7 +207,8 @@ def main():
     if model_args.tokenizer_name:
         tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_name, cache_dir=model_args.cache_dir)
     elif model_args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, cache_dir=model_args.cache_dir)
+        tokenizer = BertTokenizer.from_pretrained(model_args.model_name_or_path, cache_dir=model_args.cache_dir)
+        print("Tokenizer done")
     else:
         raise ValueError(
             "You are instantiating a new tokenizer from scratch. This is not supported, but you can do it from another script, save it,"
@@ -236,10 +238,10 @@ def main():
         )
 
     if data_args.block_size <= 0:
-        data_args.block_size = tokenizer.max_len
+        data_args.block_size = tokenizer.model_max_length
         # Our input block size will be the max possible for the model
     else:
-        data_args.block_size = min(data_args.block_size, tokenizer.max_len)
+        data_args.block_size = min(data_args.block_size, tokenizer.model_max_length)
 
     # Get datasets
 
@@ -270,8 +272,6 @@ def main():
         args=training_args,
         data_collator=data_collator,
         train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        prediction_loss_only=True,
         # do_predict= True, 
     )
 
@@ -285,9 +285,8 @@ def main():
         trainer.train(model_path=model_path)
         trainer.save_model(os.path.join(training_args.output_dir,'final_model'))
         # For convenience, we also re-save the tokenizer to the same directory,
-        # so that you can share your model easily on huggingface.co/models =)
-        if trainer.is_world_master():
-            tokenizer.save_pretrained(training_args.output_dir)
+        # so that you can share your model easily on huggingface.co/models =
+        tokenizer.save_pretrained(training_args.output_dir)
 
     # Evaluation
     results = {}
