@@ -26,7 +26,7 @@ def generate(sentences, cmi_scores):
     batch_encoding["input_style_scores"] = torch.transpose(torch.tensor([cmi_scores], dtype=torch.float32), 0, 1)
     for k,v in batch_encoding.items():
         batch_encoding[k] = v.to(device)
-    outputs = model.generate(**batch_encoding)
+    outputs = model.generate(**batch_encoding, max_length=256)
     return [tokenizer.decode(t, skip_special_tokens=True).strip() for t in outputs]
 
 predictions = []
