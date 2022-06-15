@@ -5,8 +5,6 @@ import torch
 import random
 random.seed(0)
 
-prefix = "to_cm "
-
 def load_data(data_args, model_args):
     # Get the datasets: you can either provide your own JSON training and evaluation files (see below)
     # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
@@ -26,7 +24,7 @@ def load_data(data_args, model_args):
         data_files["test"] = data_args.test_file
     raw_datasets = load_dataset('csv', data_files=data_files, delimiter = '\t',
                                 cache_dir=model_args.cache_dir,
-                                column_names=[data_args.source_lang, data_args.target_lang]+["task", "cmi"])
+                                column_names=[data_args.source_lang, data_args.target_lang]+["task", "cmi", "spi"])
     return raw_datasets
 
 class CustomDataset(torch.utils.data.Dataset):
@@ -58,36 +56,39 @@ def preprocess_function(examples, tokenizer, data_args):
 
     inputs=[]
     targets=[]
-    style_scores=[]
+    cmi_scores=[]
+    spi_scores=[]
 
-    for inp, tar, task, score in zip(examples[data_args.source_lang], examples[data_args.target_lang], examples["task"], examples["cmi"]):
+    for inp, tar, task, cmi, spi in zip(examples[data_args.source_lang], examples[data_args.target_lang], examples["task"], examples["cmi"], examples["spi"]):
         if task == "cm":
             inputs.append(cm_prefix + str(inp).strip())
             targets.append(str(tar).strip())
-            style_scores.append(float(score))
+            cmi_scores.append(float(cmi))
+            spi_scores.append(float(spi))
         elif task == "trans":
             inputs.append(en_hi_prefix + str(inp).strip())
             targets.append(tar)
-            style_scores.append(0.0)
+            cmi_scores.append(0.0)
+            spi_scores.append(0.0)
 
             inputs.append(hi_en_prefix + str(tar).strip())
             targets.append(inp)
-            style_scores.append(0.0)
+            cmi_scores.append(0.0)
+            spi_scores.append(0.0)
         else:
             continue
     assert len(inputs) == len(targets)
-    assert len(inputs) == len(style_scores)
+    assert len(inputs) == len(spi_scores)
 
-    inputs_and_targets = [(inp, tar, score) for\
-                        inp, tar, score in zip(inputs, targets, style_scores) if inp!="" and tar!="" and inp is not None and tar is not None]
+    inputs_and_targets = [(inp, tar, cmi, spi) for\
+                        inp, tar, cmi, spi in zip(inputs, targets, cmi_scores, spi_scores) if inp!="" and tar!="" and inp is not None and tar is not None]
     random.shuffle(inputs_and_targets)
 
-    inputs = [inp for (inp, _, _) in inputs_and_targets]
-    targets = [tar for (_, tar, _) in inputs_and_targets]
-    style_scores = [[score for (_, _, score) in inputs_and_targets]]
-    assert len(style_scores) == 1
-    print(style_scores[0][0:10])
-    assert len(style_scores[0]) == len(inputs)
+    inputs = [inp for (inp, _, _, _) in inputs_and_targets]
+    targets = [tar for (_, tar, _, _) in inputs_and_targets]
+    cmi_scores = [score for (_, _, score, _) in inputs_and_targets]
+    spi_scores = [score for (_, _, _, score) in inputs_and_targets]
+    style_scores = [cmi_scores, spi_scores]
 
     model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=padding, truncation=True)
 

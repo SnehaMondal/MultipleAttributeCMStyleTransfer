@@ -363,6 +363,7 @@ def main():
             data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
         )
         metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset))
+        logger.info(metrics["predict_samples"])
 
         trainer.log_metrics("predict", metrics)
         trainer.save_metrics("predict", metrics)
@@ -372,7 +373,9 @@ def main():
                 predictions = tokenizer.batch_decode(
                     predict_results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
                 )
+                logger.info(f"Num predict samples : {len(predictions)}")
                 predictions = [pred.strip() for pred in predictions]
+                logger.info(f"Num predict samples : {len(predictions)}")
                 output_prediction_file = os.path.join(training_args.output_dir, "generated_predictions.txt")
                 with open(output_prediction_file, "w", encoding="utf-8") as writer:
                     writer.write("\n".join(predictions))
