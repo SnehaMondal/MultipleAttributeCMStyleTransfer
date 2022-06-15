@@ -6,8 +6,8 @@ from transformers import T5Tokenizer
 from model import MT5ForStyleConditionalGeneration
 
 model_checkpoint="models/translation_multitask_cmi_spi_vec"
-input_filepath="data/qa_shreya/xab"
-output_filepath="data/qa_shreya/xab_output.txt"
+input_filepath="data/qa_shreya/xad"
+output_filepath="data/qa_shreya/xad_output.txt"
 
 print(f"Model name : {model_checkpoint}")
 tokenizer = T5Tokenizer.from_pretrained(model_checkpoint)
@@ -22,7 +22,7 @@ fw_hi = open(output_filepath, "w")
 task_prefix = "to_cm "
 
 def generate(sentences, cmi_scores, spi_scores):
-    batch_encoding = tokenizer(sentences, return_tensors="pt", padding=True)
+    batch_encoding = tokenizer(sentences, max_length=256, return_tensors="pt", padding=True)
     style_scores = [cmi_scores, spi_scores]
     batch_encoding["input_style_scores"] = torch.transpose(torch.tensor(style_scores, dtype=torch.float32), 0, 1)
     for k,v in batch_encoding.items():
