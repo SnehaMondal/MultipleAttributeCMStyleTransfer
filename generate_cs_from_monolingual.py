@@ -4,9 +4,9 @@ import os
 
 from transformers import MT5ForConditionalGeneration, T5Tokenizer
 
-model_checkpoint="models/mt5_trans_cmgen_multitask/checkpoint-178000"
-input_filepath="data/OpenSubtitles/OpenSubtitles.en-hi-cleaned.hi"
-output_filepath="data/OpenSubtitles/OpenSubtitles.hi-cleaned.cmgen.cs"
+model_checkpoint="models/translation_multitask_cmgen"
+input_filepath="data/OpenSubtitles/OpenSubtitles.en-hi-cmgen.hi"
+output_filepath="data/OpenSubtitles/OpenSubtitles.en-hi-cmgen.cs"
 
 print(f"Model name : {model_checkpoint}")
 tokenizer = T5Tokenizer.from_pretrained(model_checkpoint)
@@ -16,7 +16,7 @@ print(device)
 model.eval()
 model.to(device)
 
-batch_size = 64
+batch_size = 256
 beam_width = 4
 fw_hi = open(output_filepath, "w")
 task_prefix = "to_cm "

@@ -17,7 +17,7 @@ print(device)
 model.eval()
 model.to(device)
 
-batch_size = 64
+batch_size = 512
 fw_hi = open(output_filepath, "w")
 task_prefix = "to_cm "
 
