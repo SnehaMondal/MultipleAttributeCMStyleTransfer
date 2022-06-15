@@ -6,8 +6,8 @@ from transformers import T5Tokenizer
 from model import MT5ForStyleConditionalGeneration
 
 model_checkpoint="models/translation_multitask_cmi_spi_vec"
-input_filepath="data/OpenSubtitles/OpenSubtitles.en-hi-cmi-spi.hi"
-output_filepath="data/OpenSubtitles/OpenSubtitles.en-hi-cmi-spi.cs"
+input_filepath="data/qa_shreya/xab"
+output_filepath="data/qa_shreya/xab_output.txt"
 
 print(f"Model name : {model_checkpoint}")
 tokenizer = T5Tokenizer.from_pretrained(model_checkpoint)
@@ -17,7 +17,7 @@ print(device)
 model.eval()
 model.to(device)
 
-batch_size = 256
+batch_size = 64
 fw_hi = open(output_filepath, "w")
 task_prefix = "to_cm "
 
@@ -40,6 +40,8 @@ with open(input_filepath) as fr:
     st_time = time.time()
     for line in fr:
         components = line.strip().split('\t')
+        if len(components)<3:
+            continue
         if len(batch) < batch_size:
             batch.append(task_prefix + " ".join(components[0:-2]))
             batch_cmi.append(float(components[-2]))
