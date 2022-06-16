@@ -267,6 +267,8 @@ def main():
             data_files["train"] = data_args.train_file
         if data_args.validation_file is not None:
             data_files["validation"] = data_args.validation_file
+        if data_args.test_file is not None:
+            data_files["test"] = data_args.test_file
         extension = (
             data_args.train_file.split(".")[-1]
             if data_args.train_file is not None
@@ -343,10 +345,10 @@ def main():
             "You can do it from another script, save it, and load it from here, using --tokenizer_name."
         )
 
-    tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
-    config = AutoConfig.from_pretrained("xlm-roberta-base")
+    tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
+    config = AutoConfig.from_pretrained(model_args.model_name_or_path)
     config.is_decoder = True
-    model = AutoModelForCausalLM.from_pretrained("xlm-roberta-base", config=config)
+    model = AutoModelForCausalLM.from_pretrained(model_args.model_name_or_path, config=config)
     
     logger.info(f"Loaded Roberta with LM head")
 
@@ -448,6 +450,31 @@ def main():
         if data_args.max_eval_samples is not None:
             max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
             eval_dataset = eval_dataset.select(range(max_eval_samples))
+
+        def preprocess_logits_for_metrics(logits, labels):
+            if isinstance(logits, tuple):
+                # Depending on the model and config, logits may contain extra tensors,
+                # like past_key_values, but logits always come first
+                logits = logits[0]
+            return logits.argmax(dim=-1)
+
+        metric = load_metric("accuracy")
+
+        def compute_metrics(eval_preds):
+            preds, labels = eval_preds
+            # preds have the same shape as the labels, after the argmax(-1) has been calculated
+            # by preprocess_logits_for_metrics but we need to shift the labels
+            labels = labels[:, 1:].reshape(-1)
+            preds = preds[:, :-1].reshape(-1)
+            return metric.compute(predictions=preds, references=labels)
+
+    if training_args.do_predict:
+        if "test" not in tokenized_datasets:
+            raise ValueError("--do_predict requires a test dataset")
+        predict_dataset = lm_datasets["test"]
+        if data_args.max_predict_samples is not None:
+            max_predict_samples = min(len(predict_dataset), data_args.max_predict_samples)
+            predict_dataset = predict_dataset.select(range(max_predict_samples))
 
         def preprocess_logits_for_metrics(logits, labels):
             if isinstance(logits, tuple):
