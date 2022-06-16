@@ -9,12 +9,13 @@ python run_clm.py \
 --per_device_eval_batch_size=8 \
 --gradient_accumulation_steps=2 \
 --load_best_model_at_end \
---metric_for_best_model='perplexity' \
---eval_steps=1000 \
---save_steps=1000 \
+--metric_for_best_model='loss' \
+--eval_steps=500 \
+--save_steps=500 \
 --do_train \
 --do_eval \
 --do_predict \
 --output_dir=./models/lm_ishan \
 --evaluation_strategy='steps' \
---save_strategy='steps'
+--save_strategy='steps' \
+--num_train_epochs=5.0

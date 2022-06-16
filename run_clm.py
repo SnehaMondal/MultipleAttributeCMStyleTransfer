@@ -21,8 +21,7 @@ from transformers import (
     TrainingArguments,
     default_data_collator,
     is_torch_tpu_available,
-    set_seed,
-    RobertaTokenizer, RobertaConfig, RobertaForCausalLM
+    set_seed
 )
 from transformers.testing_utils import CaptureLogger
 from transformers.trainer_utils import get_last_checkpoint
@@ -344,10 +343,10 @@ def main():
             "You can do it from another script, save it, and load it from here, using --tokenizer_name."
         )
 
-    tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-    config = RobertaConfig.from_pretrained("roberta-base")
+    tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
+    config = AutoConfig.from_pretrained("xlm-roberta-base")
     config.is_decoder = True
-    model = RobertaForCausalLM.from_pretrained("roberta-base", config=config)
+    model = AutoModelForCausalLM.from_pretrained("xlm-roberta-base", config=config)
     
     logger.info(f"Loaded Roberta with LM head")
 
