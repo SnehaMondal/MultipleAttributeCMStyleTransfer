@@ -10,14 +10,11 @@ python run_clm.py \
 --gradient_accumulation_steps=2 \
 --load_best_model_at_end \
 --metric_for_best_model='perplexity' \
---eval_steps=10 \
---save_steps=10 \
+--eval_steps=1000 \
+--save_steps=1000 \
 --do_train \
 --do_eval \
 --do_predict \
 --output_dir=./models/lm_ishan \
 --evaluation_strategy='steps' \
---save_strategy='steps' \
---max_train_samples=100 \
---max_eval_samples=10 \
---max_predict_samples=10
+--save_strategy='steps'
