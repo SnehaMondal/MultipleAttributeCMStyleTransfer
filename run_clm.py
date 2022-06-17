@@ -540,7 +540,7 @@ def main():
             perplexity = math.exp(metrics["eval_loss"])
         except OverflowError:
             perplexity = float("inf")
-        metrics["perplexity"] = perplexity
+        metrics["eval_perplexity"] = perplexity
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
@@ -561,7 +561,7 @@ def main():
             perplexity = math.exp(metrics["predict_loss"])
         except OverflowError:
             perplexity = float("inf")
-        metrics["perplexity"] = perplexity
+        metrics["predict_perplexity"] = perplexity
 
         trainer.log_metrics("predict", metrics)
         trainer.save_metrics("predict", metrics)
