@@ -4,16 +4,25 @@ import os
 
 from transformers import T5Tokenizer
 from model import MT5ForStyleConditionalGeneration
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--input_filepath', type=str, required=True)
+parser.add_argument('--output_filepath', type=str, required=True)
+args = parser.parse_args()
 
 model_checkpoint="models/translation_multitask_cmi_spi_vec"
-input_filepath="data/qa_shreya/xaa"
-output_filepath="data/qa_shreya/xaa_output.txt"
+input_filepath = args.input_filepath
+output_filepath = args.output_filepath
+
+print(f"Reading from : {input_filepath}")
+print(f"Writing to : {output_filepath}")
 
 print(f"Model name : {model_checkpoint}")
 tokenizer = T5Tokenizer.from_pretrained(model_checkpoint)
 model = MT5ForStyleConditionalGeneration.from_pretrained(model_checkpoint, num_attr=2)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(device)
+print(device, flush=True)
 model.eval()
 model.to(device)
 
