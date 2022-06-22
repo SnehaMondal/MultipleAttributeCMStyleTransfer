@@ -1,6 +1,6 @@
 #!/bin/bash
 
-mode='grid'
+mode='discrete'
 echo "${mode}"
 for seed in 0 1 2 3 4
 do
