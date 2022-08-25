@@ -194,6 +194,18 @@ class DataTrainingArguments:
             "help": "Space separated attribute names"
         },
     )
+    cmi_cutoffs_dict: str = field(
+        default="./cmi_cutoffs_dict.pkl",
+        metadata={
+            "help": "CMI cutoff dict"
+        },
+    )
+    number_of_cmi_bins: int = field(
+        default=3,
+        metadata={
+            "help": "Number of bins."
+        },
+    )
 
     #attr_names: List = field(
      #   default_factory=lambda: ['cmi'],
