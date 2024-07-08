@@ -40,11 +40,13 @@ def compute_metrics(eval_preds, tokenizer, data_args):
     preds, labels = eval_preds
     if isinstance(preds, tuple):
         preds = preds[0]
-    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    if data_args.ignore_pad_token_for_loss:
+        preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
+    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True, clean_up_tokenization_spaces=True)
     if data_args.ignore_pad_token_for_loss:
         # Replace -100 in the labels as we can't decode them.
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True, clean_up_tokenization_spaces=True)
 
     # Some simple post-processing
     decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)

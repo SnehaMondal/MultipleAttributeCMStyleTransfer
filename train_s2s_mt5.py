@@ -183,7 +183,7 @@ class DataTrainingArguments:
         },
     )
     source_prefix: Optional[str] = field(
-        default="to_cm ", metadata={"help": "A prefix to add before every source text (useful for T5 models)."}
+        default=None, metadata={"help": "A prefix to add before every source text (useful for T5 models)."}
     )
     forced_bos_token: Optional[str] = field(
         default=None,
@@ -358,7 +358,7 @@ def main():
 
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
-
+    print("Tokenizer padding ID: ", tokenizer.pad_token_id)
     if training_args.do_train:
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
@@ -518,8 +518,10 @@ def main():
 
         if trainer.is_world_process_zero():
             if training_args.predict_with_generate:
+                predictions = predict_results.predictions
+                predictions = np.where(predictions != -100, predictions, tokenizer.pad_token_id)
                 predictions = tokenizer.batch_decode(
-                    predict_results.predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
+                    predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
                 )
                 predictions = [pred.strip() for pred in predictions]
                 output_prediction_file = os.path.join(training_args.output_dir, "generated_predictions.txt")

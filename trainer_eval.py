@@ -13,6 +13,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         inputs: Dict[str, Union[torch.Tensor, Any]],
         prediction_loss_only: bool,
         ignore_keys: Optional[List[str]] = None,
+        **gen_kwargs,
     ) -> Tuple[Optional[float], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Perform an evaluation step on `model` using `inputs`.
@@ -39,18 +40,14 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
         has_labels = "labels" in inputs
         inputs = self._prepare_inputs(inputs)
+        print(inputs.keys())
 
         # XXX: adapt synced_gpus for fairscale as well
         gen_kwargs = {
-            "max_length": self._max_length if self._max_length is not None else self.model.config.max_length,
-            "num_beams": self._num_beams if self._num_beams is not None else self.model.config.num_beams,
+            "max_length": self.args.generation_max_length if self.args.generation_max_length is not None else self.model.config.max_length,
+            "num_beams": self.args.generation_num_beams if self.args.generation_num_beams is not None else self.model.config.num_beams,
             # "synced_gpus": True if is_deepspeed_zero3_enabled() else False,
         }
-
-        if "attention_mask" in inputs:
-            gen_kwargs["attention_mask"] = inputs.get("attention_mask", None)
-        if "input_style_scores" in inputs:    
-            gen_kwargs["input_style_scores"] = inputs.get("input_style_scores", None)
 
         # prepare generation inputs
         # some encoder-decoder models can have varying encder's and thus
@@ -59,9 +56,22 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             generation_inputs = inputs[self.model.encoder.main_input_name]
         else:
             generation_inputs = inputs[self.model.main_input_name]
-
+        generation_inputs = inputs.copy()
+        # If the `decoder_input_ids` was created from `labels`, evict the former, so that the model can freely generate
+        # (otherwise, it would continue generating from the padded `decoder_input_ids`)
+        if (
+            "labels" in generation_inputs
+            and "decoder_input_ids" in generation_inputs
+            and generation_inputs["labels"].shape == generation_inputs["decoder_input_ids"].shape
+        ):
+            generation_inputs = {
+                k: v for k, v in inputs.items() if k not in ("decoder_input_ids", "decoder_attention_mask")
+            }
+        print(generation_inputs.keys())
+        print(gen_kwargs.get("max_length"))
+        print(gen_kwargs.get("num_beams"))
         generated_tokens = self.model.generate(
-            generation_inputs,
+            **generation_inputs,
             **gen_kwargs,
         )
         # in case the batch is shorter than max length, the output should be padded
