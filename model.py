@@ -1,11 +1,13 @@
 import time
 import torch
+import inspect
 import torch.distributed as dist
 import os
 
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 from transformers import MT5ForConditionalGeneration, T5Tokenizer, MT5Config
+from transformers.generation.configuration_utils import GenerationConfig
 from transformers.modeling_outputs import Seq2SeqLMOutput, BaseModelOutput
 import numpy as np
 from torch import nn
@@ -159,7 +161,11 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
         )
     
     def _prepare_encoder_decoder_kwargs_for_generation(
-        self, inputs_tensor: torch.Tensor, model_kwargs, model_input_name: Optional[str] = None
+        self,
+        inputs_tensor: torch.Tensor,
+        model_kwargs,
+        model_input_name: Optional[str],
+        generation_config: Optional[GenerationConfig],
     ) -> Dict[str, Any]:
         # 1. get encoder
         encoder = self.get_encoder()
@@ -171,6 +177,14 @@ class MT5ForStyleConditionalGeneration(MT5ForConditionalGeneration):
             for argument, value in model_kwargs.items()
             if not any(argument.startswith(p) for p in irrelevant_prefix)
         }
+        encoder_signature = set(inspect.signature(encoder.forward).parameters)
+        encoder_accepts_wildcard = "kwargs" in encoder_signature or "model_kwargs" in encoder_signature
+        if not encoder_accepts_wildcard:
+            encoder_kwargs = {
+                argument: value for argument, value in encoder_kwargs.items() if argument in encoder_signature
+            }
+        encoder_kwargs["output_attentions"] = generation_config.output_attentions
+        encoder_kwargs["output_hidden_states"] = generation_config.output_hidden_states
 
         # 3. make sure that encoder returns `ModelOutput`
         model_input_name = model_input_name if model_input_name is not None else self.main_input_name
